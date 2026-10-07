@@ -22,8 +22,9 @@ from ao.backends.base import Health, Result, RunRequest, Usage
 from ao.config import BackendConfig
 from ao.secrets import ENV_PREFIX
 
-# Always passed. Headless and deterministic: nothing may prompt for permission, no
-# session files, no MCP servers except the agent's own, no skill listing.
+# Always passed. Headless and deterministic: nothing may prompt for permission, no MCP
+# servers except the agent's own, no skill listing. Session files are only written when a
+# request asks for them (Jarvis chat); otherwise --no-session-persistence is added.
 # --restricted (KAP-86, measured: no token cost) ignores the user's settings files, so
 # their allow-rules can't widen an agent's permissions, and confines file tools to the
 # workspace + --add-dir. Under dontAsk, reads there are allowed; writes/edits/Bash need
@@ -31,7 +32,6 @@ from ao.secrets import ENV_PREFIX
 FIXED_FLAGS = (
     "-p",
     "--output-format", "json",
-    "--no-session-persistence",
     "--permission-prompts", "none",
     "--permission-mode", "dontAsk",
     "--restricted",
@@ -53,6 +53,10 @@ def build_argv(
     """
     agent = request.agent.config
     argv = [*shlex.split(config.command or "claude"), *FIXED_FLAGS]
+    if request.resume_session_id:
+        argv += ["--resume", request.resume_session_id]
+    elif not request.persist_session:
+        argv.append("--no-session-persistence")
     if request.model:
         argv += ["--model", request.model]
     prompt_flag = "--system-prompt" if agent.prompt.mode == "replace" else "--append-system-prompt"

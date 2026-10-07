@@ -1,5 +1,6 @@
 """Test doubles."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from ao.backends.base import Health, Result, RunRequest, Usage
@@ -15,6 +16,8 @@ class FakeBackend:
     results: list[Result] = field(default_factory=list)
     requests: list[RunRequest] = field(default_factory=list)
     local: bool = False
+    # Optional per-request answer (e.g. scripted per agent); wins over `results`.
+    responder: Callable[[RunRequest], Result] | None = None
 
     @property
     def is_local(self) -> bool:
@@ -22,6 +25,8 @@ class FakeBackend:
 
     def run(self, request: RunRequest) -> Result:
         self.requests.append(request)
+        if self.responder is not None:
+            return self.responder(request)
         if self.results:
             return self.results.pop(0)
         return Result(

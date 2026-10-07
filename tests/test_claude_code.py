@@ -61,6 +61,7 @@ def test_minimal_argv_uses_cheapest_flags(agent):
     assert tuple(argv[1 : 1 + len(FIXED_FLAGS)]) == FIXED_FLAGS
     assert "--strict-mcp-config" in argv and "--disable-slash-commands" in argv
     assert "--restricted" in argv and flag(argv, "--permission-mode") == "dontAsk"
+    assert "--no-session-persistence" in argv and "--resume" not in argv
     assert flag(argv, "--system-prompt") == "SYS"
     assert "--append-system-prompt" not in argv
     assert flag(argv, "--tools") == ""
@@ -250,3 +251,12 @@ def test_live_structured_output(agent):
                                      prompt="What is 6 * 7?", json_schema=schema))  # fmt: skip
     assert result.outcome == "ok", result.error
     assert result.structured == {"answer": 42}
+
+
+def test_session_flags(agent):
+    config = BackendConfig(type="claude_code")
+    persisted = build_argv(config, request_for(agent, persist_session=True))
+    assert "--no-session-persistence" not in persisted and "--resume" not in persisted
+    resumed = build_argv(config, request_for(agent, persist_session=True, resume_session_id="abc"))
+    assert flag(resumed, "--resume") == "abc"
+    assert "--no-session-persistence" not in resumed

@@ -22,6 +22,9 @@ class RunRequest:
     model: str | None = None
     json_schema: dict[str, Any] | None = None
     max_cost_usd: float | None = None
+    # Conversation continuity (backends with sessions): keep the session, or resume one.
+    persist_session: bool = False
+    resume_session_id: str | None = None
 
 
 @dataclass(frozen=True)
