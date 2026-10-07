@@ -238,3 +238,15 @@ def test_live_read_outside_workspace_is_denied(agent, tmp_path):
     denied = backend.run(request_for(reader, system_prompt=system, prompt=f"Read {secret}"))
     assert "OUTSIDE-MARK-456" not in denied.text
     assert denied.raw["permission_denials"]
+
+
+@pytest.mark.live
+@pytest.mark.skipif(os.environ.get("AO_LIVE") != "1", reason="set AO_LIVE=1 to call real claude")
+def test_live_structured_output(agent):
+    backend = ClaudeCodeBackend("claude", BackendConfig(type="claude_code"))
+    schema = {"type": "object", "properties": {"answer": {"type": "integer"}},
+              "required": ["answer"]}  # fmt: skip
+    result = backend.run(request_for(agent, system_prompt="Answer arithmetic.",
+                                     prompt="What is 6 * 7?", json_schema=schema))  # fmt: skip
+    assert result.outcome == "ok", result.error
+    assert result.structured == {"answer": 42}

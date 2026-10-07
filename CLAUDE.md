@@ -64,6 +64,11 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - `ao.context.build()` assembles every prompt in this order. System part (stable, cacheable): instructions → `## Memory` index → extra system sections (roster etc.). Prompt part: attachments as `<document path=…>` → task. Nothing implicit is ever added.
 - Attachments must be UTF-8 files of at most 200 KB. An estimate over `limits.max_context_tokens` (default 30k) refuses the run. `--dry-run` prints the per-section table. Prompt snapshots live in `tests/snapshots/` (`AO_UPDATE_SNAPSHOTS=1` rewrites them).
 
+## Structured output and memory (implemented)
+- `run.prepare(output_schema=…)` → `--json-schema`. claude returns the object in `structured_output` (`Result.structured`). It costs one extra turn, so `max_turns` is raised to at least 2. A string `reply` field becomes the result text. A missing structured result is an error.
+- Memory (`ao.memory`) is **only** `agents/<name>/memory/INDEX.md`, with lines of the form `- [id] text`. With `[memory] writeback = true`, the run adds a short protocol section and a required `memory` ops field. `run.execute` validates and applies the ops after an ok run and logs `memory.*` events. Agents never write the file directly.
+- A write-back run costs about 1.3k input tokens (vs about 430 without). `ao memory show|add|rm|compact`. Compaction (`ao.compaction`) is one haiku call with a diff, applied only after confirmation.
+
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
 - In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).
