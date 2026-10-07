@@ -174,3 +174,19 @@ def task_retry(task_id: int) -> None:
             raise fail(str(exc)) from exc
         repo.log_event(conn, "task.retry", agent=task.agent, task_id=task_id)
     typer.echo(f"re-queued #{task_id}")
+
+
+@task_app.command("cancel")
+def task_cancel(task_id: int) -> None:
+    """Cancel a queued/waiting/failed task so it is never run."""
+    loaded = load_or_exit()
+    with closing(open_db(loaded)) as conn:
+        try:
+            task = repo.get_task(conn, task_id)
+        except KeyError as exc:
+            raise fail(str(exc)) from exc
+        if task.status in ("running", "done", "canceled"):
+            raise fail(f"task {task_id} is {task.status}")
+        repo.finish_task(conn, task_id, "canceled")
+        repo.log_event(conn, "task.canceled", agent=task.agent, task_id=task_id)
+    typer.echo(f"canceled #{task_id}")
