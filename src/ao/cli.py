@@ -4,6 +4,7 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -29,6 +30,7 @@ from ao.cli_common import (
 )
 from ao.cli_tasks import task_app
 from ao.config import LoadedConfig, config_files, redact
+from ao.context import describe as describe_context
 from ao.db import repo, store
 from ao.paths import find_project_root
 
@@ -78,6 +80,9 @@ def run_agent(
     force: Annotated[
         bool, typer.Option("--force", help="Run even if over budget (logged).")
     ] = False,
+    attach: Annotated[
+        list[Path] | None, typer.Option("--attach", help="File to include (repeatable).")
+    ] = None,
 ) -> None:
     """Run one agent on one prompt and record the run.
 
@@ -86,7 +91,9 @@ def run_agent(
     prompt = text_or_stdin(prompt)
     loaded = load_or_exit()
     try:
-        prepared = runs.prepare(loaded, agent, prompt)
+        prepared = runs.prepare(
+            loaded, agent, prompt, attachments=[str(p.resolve()) for p in attach or []]
+        )
     except (AgentError, BackendError, runs.RunError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(EXIT_USAGE) from exc
@@ -95,8 +102,9 @@ def run_agent(
         typer.echo(f"# backend: {prepared.backend.name} ({prepared.backend.config.type})")
         typer.echo(f"# cwd: {prepared.agent.workspace}")
         typer.echo(
-            f"# estimated tokens (ours, excl. backend overhead): {prepared.estimated_tokens}"
+            describe_context(prepared.context, prepared.agent.config.limits.max_context_tokens)
         )
+        typer.echo("# (estimates exclude the backend's own overhead)")
         typer.echo(prepared.backend.preview(prepared.request))
         typer.echo("# --- system prompt ---")
         typer.echo(prepared.request.system_prompt)

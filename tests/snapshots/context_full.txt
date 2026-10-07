@@ -1,0 +1,14 @@
+You are Scout. Be terse.
+
+## Memory
+- [style] prefers bullet lists
+
+## Agents
+- scout
+===== prompt =====
+<document path="<DOC>">
+# Notes
+Offline mode matters.
+</document>
+
+Summarise the notes.

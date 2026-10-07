@@ -5,9 +5,10 @@ This is the seed of the task runner (KAP-83); the full context builder is KAP-84
 
 import hashlib
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ao import budget, mcp
+from ao import budget, context, mcp
 from ao.agents import Agent, agent_problem, load_agent
 from ao.backends import get_backend
 from ao.backends.base import Backend, Result, RunRequest
@@ -25,6 +26,7 @@ class PreparedRun:
     agent: Agent
     backend: Backend
     request: RunRequest
+    context: context.Context
     global_budgets: BudgetsConfig = field(default_factory=BudgetsConfig)
     local_backends: frozenset[str] = frozenset()
 
@@ -39,7 +41,7 @@ class PreparedRun:
     @property
     def estimated_tokens(self) -> int:
         """Rough size of what we send (chars/4). The backend may add its own overhead."""
-        return (len(self.request.system_prompt) + len(self.request.prompt)) // 4
+        return self.context.est_tokens
 
 
 @dataclass(frozen=True)
@@ -48,19 +50,15 @@ class RunRecord:
     result: Result
 
 
-def build_system_prompt(agent: Agent) -> str:
-    """Stable content first (instructions, then memory) so prompt caching can kick in."""
-    parts = [agent.instructions]
-    if agent.memory_index:
-        parts.append(f"## Memory\n{agent.memory_index}")
-    return "\n\n".join(parts)
-
-
 def prepare(
-    loaded: LoadedConfig, agent_name: str, prompt: str, *, attachments: list[str] | None = None
+    loaded: LoadedConfig,
+    agent_name: str,
+    prompt: str,
+    *,
+    attachments: Sequence[str] = (),
+    extra_system: Sequence[tuple[str, str]] = (),
 ) -> PreparedRun:
-    if attachments:
-        raise RunError("attachments are not supported yet (KAP-84)")
+    """Resolve agent and backend and assemble the context. Sends nothing."""
     agent = load_agent(loaded, agent_name)
     if problem := agent_problem(loaded, agent):
         raise RunError(f"agent {agent_name!r} cannot run: {problem}")
@@ -71,12 +69,17 @@ def prepare(
             mcp.check_secrets(agent.mcp_config)
         except SecretNotFound as exc:
             raise RunError(f"{agent.mcp_config}: {exc}") from exc
+    try:
+        ctx = context.build(agent, prompt, attachments, extra_system)
+        context.check_limit(ctx, agent.config.limits.max_context_tokens)
+    except context.ContextError as exc:
+        raise RunError(str(exc)) from exc
     backend_config = loaded.config.backends[agent.config.backend]
     backend = get_backend(agent.config.backend, backend_config)
     request = RunRequest(
         agent=agent,
-        system_prompt=build_system_prompt(agent),
-        prompt=prompt,
+        system_prompt=ctx.system_prompt,
+        prompt=ctx.prompt,
         model=agent.config.model or backend_config.model,
         max_cost_usd=agent.config.budget.per_run_cost_usd,
     )
@@ -84,6 +87,7 @@ def prepare(
         agent=agent,
         backend=backend,
         request=request,
+        context=ctx,
         global_budgets=loaded.config.budgets,
         local_backends=frozenset(n for n, b in loaded.config.backends.items() if b.is_local),
     )
