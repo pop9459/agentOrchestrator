@@ -7,11 +7,13 @@ import hashlib
 import sqlite3
 from dataclasses import dataclass
 
+from ao import mcp
 from ao.agents import Agent, agent_problem, load_agent
 from ao.backends import get_backend
 from ao.backends.base import Backend, Result, RunRequest
 from ao.config import LoadedConfig
 from ao.db import repo
+from ao.secrets import SecretNotFound
 
 
 class RunError(Exception):
@@ -58,6 +60,11 @@ def prepare(loaded: LoadedConfig, agent_name: str, prompt: str) -> PreparedRun:
         raise RunError(f"agent {agent_name!r} cannot run: {problem}")
     if not prompt.strip():
         raise RunError("empty prompt")
+    if agent.mcp_config is not None:
+        try:
+            mcp.check_secrets(agent.mcp_config)
+        except SecretNotFound as exc:
+            raise RunError(f"{agent.mcp_config}: {exc}") from exc
     backend_config = loaded.config.backends[agent.config.backend]
     backend = get_backend(agent.config.backend, backend_config)
     request = RunRequest(

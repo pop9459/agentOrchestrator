@@ -48,6 +48,7 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - The run **workspace (cwd) is `<data>/workspaces/<name>`, deliberately outside the repo**. With a cwd inside the repo, Claude Code auto-loads this CLAUDE.md into every agent run (+1.8k tokens; measured in KAP-102).
 - Prefer `prompt.mode = "replace"` with `tools.builtin = []` (about 430 input tokens per call). `append` plus tools costs about 17.6k. Only give agents tools they need.
 - A built-in `claude` backend (`claude_code`) exists without any config file.
+- MCP (`ao.mcp`): `--strict-mcp-config` is **always** on, so an agent gets only the servers in its own `mcp.json`. Without strict mode your global claude.ai connectors added ~30k input tokens per run (measured). `mcp.json` is validated at load. Secrets are written as `{{secret:name}}` and rendered into a 0600 temp copy that exists only during the run.
 
 ## Backends and runs (implemented)
 - `ao.backends.base`: `RunRequest` → `Backend.run()` → `Result` (`Usage` counts input, output, cache read/write and cost; `billable_tokens` excludes cache reads). Backends register with `@register("<type>")` in `ao.backends`; built-ins are imported at the bottom of `ao/backends/__init__.py`.

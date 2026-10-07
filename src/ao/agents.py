@@ -22,6 +22,7 @@ from typing import Literal
 
 from pydantic import Field, ValidationError
 
+from ao import mcp
 from ao.config import LoadedConfig, StrictModel, format_validation_error
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -128,6 +129,11 @@ def load_agent(loaded: LoadedConfig, name: str) -> Agent:
         raise AgentError(f"agent {name!r} has no {INSTRUCTIONS_FILE}")
     memory_path = directory / MEMORY_INDEX
     mcp_path = directory / MCP_FILE
+    if mcp_path.is_file():
+        try:
+            mcp.validate(mcp_path)
+        except mcp.McpConfigError as exc:
+            raise AgentError(str(exc)) from exc
     return Agent(
         name=name,
         dir=directory,
