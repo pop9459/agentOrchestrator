@@ -81,6 +81,12 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - Results of confidential tasks and confidential agents are **withheld** from MCP clients.
 - It is meant for interactive Claude Code sessions: `claude mcp add ao -- uv --directory <repo> run ao mcp serve`. Jarvis does not use it, because tool mode costs more than structured output. `ao.mcp` (the per-agent `mcp.json` handling) is a different module from `ao.mcp_server`.
 
+## Linear (M4)
+- Python code talks to Linear's GraphQL API itself (`ao.linear.client`, httpx) using a personal API key (`AO_SECRET_LINEAR` in `.env`). The claude.ai Linear connector is not usable from code.
+- Linear rejects "too complex" queries. Keep nested lists bounded (`first:`) and fetch metadata in separate small queries (team/states, projects, labels, milestones), as `LinearClient.team()` does. Verify new queries against the live API.
+- `ao linear sync [--full]` mirrors the whole team into `linear_issues` plus `linear_meta` (states, labels, projects with milestones, `last_sync`). It is incremental by `updatedAt`, and `--full` drops deleted issues. Issues are **not** tasks. `ao linear task KAP-n --agent X [--run]` is the explicit hand-off, which sets `tasks.linear_issue_id`.
+- Tests use `tests/linear_fake.py` (`FakeLinear`, an httpx MockTransport).
+
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
 - In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).

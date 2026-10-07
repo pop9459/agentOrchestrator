@@ -51,10 +51,18 @@ class BudgetsConfig(StrictModel):
     global_daily_tokens: int | None = Field(default=None, ge=0)
 
 
+class LinearConfig(StrictModel):
+    team: str = "KAP"  # team key
+    api_key_secret: str = Field(default="linear", pattern=SECRET_REF)  # → AO_SECRET_LINEAR
+    # Projects (names or ids) ao may write to, always via an applied change set (KAP-95).
+    write_projects: list[str] = []
+
+
 class AoConfig(StrictModel):
     paths: PathsConfig = PathsConfig()
     backends: dict[str, BackendConfig] = {}
     budgets: BudgetsConfig = BudgetsConfig()
+    linear: LinearConfig = LinearConfig()
 
 
 # Base layer under all config files; a `claude` backend works out of the box.

@@ -20,6 +20,7 @@ from ao import memory, runner
 from ao.agents import AgentError, agent_problem, list_agent_names, load_agent
 from ao.config import LoadedConfig, load_config
 from ao.db import repo, store
+from ao.linear import mirror
 
 WITHHELD = "(withheld: confidential; see KAP-91 airlock)"
 MAX_RESULT_CHARS = 4000
@@ -113,7 +114,7 @@ class Tools:
             return view
 
     def search_context(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Finished public task results and public agents' memory facts matching `query`."""
+        """Finished public task results, mirrored Linear issues and public agents' memory."""
         loaded, conn = self._open()
         hits: list[dict[str, Any]] = []
         needle = f"%{query.strip()}%"
@@ -134,6 +135,15 @@ class Tools:
                             "text": (task.result or "")[:MAX_RESULT_CHARS],
                         }
                     )
+            for issue in mirror.search(conn, text=query.strip(), limit=limit):
+                hits.append(
+                    {
+                        "source": f"linear {issue.identifier}",
+                        "agent": None,
+                        "title": issue.title,
+                        "text": (issue.description or "")[:MAX_RESULT_CHARS],
+                    }
+                )
         lowered = query.strip().lower()
         for name in list_agent_names(loaded):
             if len(hits) >= limit or self._confidential_agent(loaded, name):
