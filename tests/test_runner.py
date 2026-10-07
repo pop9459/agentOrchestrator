@@ -161,3 +161,11 @@ def test_cli_run_failure_exit_and_retry(env, fake):
     assert "boom" in result.stderr
     assert cli.invoke(app, ["task", "retry", "1"]).stdout == "re-queued #1\n"
     assert cli.invoke(app, ["task", "run", "1"]).exit_code == 0
+
+
+def test_cli_cancel(env, fake):
+    cli.invoke(app, ["task", "add", "x", "--agent", "scout"])
+    assert cli.invoke(app, ["task", "cancel", "1"]).stdout == "canceled #1\n"
+    assert cli.invoke(app, ["task", "cancel", "1"]).exit_code == 2
+    assert cli.invoke(app, ["task", "run", "--all"]).stdout == "queue empty\n"
+    assert fake.requests == []

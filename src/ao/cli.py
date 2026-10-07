@@ -53,6 +53,17 @@ app.add_typer(memory_app, name="memory")
 app.command("ask")(ask)
 app.command("chat")(chat)
 app.command("hire")(hire)
+mcp_app = typer.Typer(help="Run ao as an MCP server.", no_args_is_help=True)
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("serve")
+def mcp_serve() -> None:
+    """Serve ao's tools over stdio (add with: claude mcp add ao -- uv --directory <repo> run
+    ao mcp serve)."""
+    from ao.mcp_server import build_server  # lazy: keeps the MCP SDK off normal CLI startup
+
+    build_server().run("stdio")
 
 
 def _version_callback(value: bool) -> None:

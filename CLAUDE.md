@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Roadmap and tickets: Linear project **P-KAP-10** "Create paperclip clone project" (team KAPSLOK, issues KAP-73…98 plus KAP-45/46/47), https://linear.app/pop9459/project/create-paperclip-clone-project-8e1a10e04d56. Milestones run M0 Foundations → M1 Agent runtime → M2 Company core → M3 Confidential & local → M4 Linear → M5 Connectors → M6 TUI. Branch names follow Linear's `pop9459/kap-NN-…` convention.
 
-**Status:** M0 done. M1 done for the Claude Code backend (agents, `ao run`, per-agent MCP, budgets, `ao usage`). The local/OpenAI-compatible (KAP-80) and CLI-template (KAP-81) backends are deferred. Next up is M2 (task runner KAP-83, context builder KAP-84).
+**Status:** M0 and M2 done. M1 is done for the Claude Code backend; the local/OpenAI-compatible (KAP-80) and CLI-template (KAP-81) backends are deferred. Next up is M3 (confidentiality and local, which needs KAP-80) or M4 (Linear).
 
 ## Commands
 Python ≥3.12 managed by uv; package lives in `src/ao/`, tests in `tests/`.
@@ -75,6 +75,11 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 
 ## Hiring (implemented)
 - `ao hire "<need>" [--yes]`: the `hiring` agent (template; auto-created if missing) gets a catalogue of existing agents and configured backends, and returns a structured proposal. Its selection rules are in its INSTRUCTIONS: confidential → local, triage → haiku, judgement → sonnet, tools only if needed. `ao.hiring.propose()` validates the proposal through `AgentConfig` (one re-ask on a name collision) and adds warnings, for example an unconfigured backend. `agents.write_agent()` writes a compact `agent.toml` (`render_config`, tomli-w) only after approval.
+
+## MCP server (implemented)
+- `ao mcp serve` (stdio, `ao.mcp_server`, MCP SDK 2.x `MCPServer`) exposes `list_agents`, `create_task`, `delegate` (runs now via the runner), `task_status`, `search_context` (done public tasks plus public agents' memory) and `write_memory`.
+- Results of confidential tasks and confidential agents are **withheld** from MCP clients.
+- It is meant for interactive Claude Code sessions: `claude mcp add ao -- uv --directory <repo> run ao mcp serve`. Jarvis does not use it, because tool mode costs more than structured output. `ao.mcp` (the per-agent `mcp.json` handling) is a different module from `ao.mcp_server`.
 
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
