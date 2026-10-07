@@ -45,7 +45,14 @@ class UsageRow:
     runs: int
     tokens_in: int
     tokens_out: int
+    cache_read_tokens: int
+    cache_write_tokens: int
     cost_usd: float
+
+    @property
+    def billable_tokens(self) -> int:
+        """Same definition as `Usage.billable_tokens`: cache reads excluded."""
+        return self.tokens_in + self.cache_write_tokens + self.tokens_out
 
 
 def add_task(
@@ -103,20 +110,26 @@ def record_run(
     prompt_hash: str | None = None,
     tokens_in: int = 0,
     tokens_out: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
     cost_usd: float | None = None,
     duration_ms: int | None = None,
+    session_id: str | None = None,
+    num_turns: int | None = None,
     error: str | None = None,
     started_at: str | None = None,
     finished_at: str | None = None,
 ) -> int:
     cur = conn.execute(
         "INSERT INTO runs (task_id, agent, backend, model, prompt_hash, tokens_in, tokens_out,"
-        " cost_usd, duration_ms, outcome, error, started_at, finished_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+        " cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, session_id, num_turns,"
+        " outcome, error, started_at, finished_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
         " coalesce(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), ?)",
         (
             task_id, agent, backend, model, prompt_hash, tokens_in, tokens_out,
-            cost_usd, duration_ms, outcome, error, started_at, finished_at,
+            cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, session_id, num_turns,
+            outcome, error, started_at, finished_at,
         ),
     )  # fmt: skip
     return cur.lastrowid
@@ -142,7 +155,8 @@ def usage_summary(conn: sqlite3.Connection, since: str, agent: str | None = None
     """Totals per agent/backend/model for runs on or after `since` (ISO date `YYYY-MM-DD`)."""
     query = (
         "SELECT agent, backend, model, sum(runs) AS runs, sum(tokens_in) AS tokens_in,"
-        " sum(tokens_out) AS tokens_out, sum(cost_usd) AS cost_usd"
+        " sum(tokens_out) AS tokens_out, sum(cache_read_tokens) AS cache_read_tokens,"
+        " sum(cache_write_tokens) AS cache_write_tokens, sum(cost_usd) AS cost_usd"
         " FROM usage_daily WHERE day >= ?"
     )
     params: list[Any] = [since]
