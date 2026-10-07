@@ -24,12 +24,17 @@ from ao.secrets import ENV_PREFIX
 
 # Always passed. Headless and deterministic: nothing may prompt for permission, no
 # session files, no MCP servers except the agent's own, no skill listing.
+# --restricted (KAP-86, measured: no token cost) ignores the user's settings files, so
+# their allow-rules can't widen an agent's permissions, and confines file tools to the
+# workspace + --add-dir. Under dontAsk, reads there are allowed; writes/edits/Bash need
+# an explicit `tools.allow` entry; everything else is denied without prompting.
 FIXED_FLAGS = (
     "-p",
     "--output-format", "json",
     "--no-session-persistence",
     "--permission-prompts", "none",
     "--permission-mode", "dontAsk",
+    "--restricted",
     "--strict-mcp-config",
     "--disable-slash-commands",
 )  # fmt: skip

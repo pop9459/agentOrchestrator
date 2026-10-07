@@ -159,6 +159,10 @@ def _record(
         agent=prepared.agent.name,
         task_id=task_id,
         run_id=run_id,
-        data={"outcome": result.outcome, "backend": prepared.backend.name},
+        data={
+            "outcome": result.outcome,
+            "backend": prepared.backend.name,
+            "permission_denials": len((result.raw or {}).get("permission_denials") or []),
+        },
     )
     return RunRecord(run_id=run_id, result=result)
