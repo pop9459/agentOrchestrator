@@ -1,12 +1,14 @@
 """`ao` command-line entrypoint."""
 
 import json
+from contextlib import closing
 from typing import Annotated
 
 import typer
 
 from ao import __version__, secrets
 from ao.config import ConfigError, LoadedConfig, config_files, load_config, redact
+from ao.db import store
 from ao.paths import find_project_root
 
 app = typer.Typer(
@@ -16,6 +18,8 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Inspect configuration.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
+db_app = typer.Typer(help="Manage the state database.", no_args_is_help=True)
+app.add_typer(db_app, name="db")
 
 
 def _version_callback(value: bool) -> None:
@@ -92,3 +96,35 @@ def config_paths() -> None:
     typer.echo(f"  database:   {data.db_path}")
     typer.echo(f"  cache:      {data.cache}")
     typer.echo(f"  logs:       {data.logs}")
+
+
+@db_app.command("migrate")
+def db_migrate() -> None:
+    """Create or upgrade the state database (safe to run repeatedly)."""
+    db_path = _load().data.ensure().db_path
+    with closing(store.connect(db_path)) as conn:
+        applied = store.migrate(conn)
+    if not applied:
+        typer.echo(f"{db_path}: up to date")
+    for migration in applied:
+        typer.echo(f"{db_path}: applied {migration.version:04d}_{migration.name}")
+
+
+@db_app.command("status")
+def db_status() -> None:
+    """Show database location, applied migrations and row counts."""
+    db_path = _load().data.db_path
+    typer.echo(f"database: {db_path}")
+    if not db_path.exists():
+        typer.echo("not created yet; run `ao db migrate`")
+        raise typer.Exit(1)
+    with closing(store.connect(db_path)) as conn:
+        applied = store.applied_versions(conn)
+        pending = [m for m in store.available_migrations() if m.version not in applied]
+        typer.echo(f"applied:  {', '.join(f'{v:04d}' for v in applied) or '(none)'}")
+        if pending:
+            typer.echo(f"pending:  {', '.join(f'{m.version:04d}' for m in pending)}")
+        if applied:
+            for table in ("tasks", "runs", "events"):
+                count = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                typer.echo(f"{table + ':':<9} {count}")
