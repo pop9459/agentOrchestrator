@@ -1,0 +1,24 @@
+# Example ao config. Copy to `ao.toml` (shared) or `ao.local.toml` (gitignored, machine-specific).
+# User-wide defaults can live in ~/.config/ao/ao.toml. Later files override earlier ones.
+# Never put secret values here: reference them by name and set AO_SECRET_<NAME>
+# in the environment or .env, or store them with `keyring set ao <name>`.
+
+[paths]
+agents_dir = "agents"
+# data_dir = "~/.local/share/ao"   # default: $XDG_DATA_HOME/ao (AO_DATA_DIR env overrides)
+
+[budgets]
+# global_daily_tokens = 2_000_000  # hard cap across all Claude runs per day
+
+[backends.claude]
+type = "claude_code"
+command = "claude"
+model = "sonnet"
+
+[backends.local]
+type = "openai_compat"
+base_url = "http://192.168.1.50:8080/v1"   # llama.cpp server on the other PC
+model = "local-model"
+api_key_secret = "llama"                    # resolved from AO_SECRET_LLAMA / .env / keyring
+is_local = true
+timeout_s = 600
