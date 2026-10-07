@@ -1,0 +1,14 @@
+role = "Turns raw head-dump ideas into tidy, tagged backlog entries"
+backend = "claude"
+model = "haiku"
+clearance = "public"
+
+[prompt]
+mode = "replace"
+
+[limits]
+max_turns = 2
+effort = "low"
+
+[budget]
+daily_tokens = 100_000

@@ -27,7 +27,8 @@ uv run ruff format                        # format
 4. **Budgets are hard limits.** Every run records tokens. Exceeding a per-agent or global cap refuses the run. Pro limits are shared with interactive Claude Code use.
 5. **Confidentiality is enforced in code.** Confidential data never reaches a non-local backend. If the local backend is down, the task waits in the queue and never falls back to the cloud. Only an approved summary crosses the airlock.
 6. **Secrets live only in connector/config code** (keyring or env). They never go into agent dirs, prompts, logs or the DB.
-7. **Outward actions need human approval.** The orchestrator must not write to Linear until the KAP-95 approval gate exists, and then only to allowlisted projects. Mail is read-only permanently.
+7. **Runtime output is user data, never repo content.** The repo is public. Everything ao creates or changes at runtime stays gitignored or under the data dir: `agents/`, memory, workspaces, the DB, `.env`, `ao.local.toml`. Only generic templates and examples are committed.
+8. **Outward actions need human approval.** The orchestrator must not write to Linear until the KAP-95 approval gate exists, and then only to allowlisted projects. Mail is read-only permanently.
 
 ## Config, secrets and paths (implemented)
 - `ao.config.load_config()` deep-merges `~/.config/ao/ao.toml` < `<project>/ao.toml` < `<project>/ao.local.toml` (gitignored) into strict Pydantic models (`extra="forbid"`; errors give dotted key paths and the source file). See `ao.example.toml`. The project root is the nearest ancestor containing `ao.toml`/`ao.local.toml`/`.git`.
@@ -40,8 +41,13 @@ uv run ruff format                        # format
 - Usage is the `usage_daily` **view** over `runs`, not separate counters, so recording a run is the only bookkeeping needed.
 - `ao db migrate` / `ao db status`.
 
+## Agents (implemented)
+- `ao.agents`: `agents/<name>/` (gitignored) holds `agent.toml` (`AgentConfig`: role, backend, model, clearance, `[prompt] mode`, `[tools]`, `[limits]`, `[budget]`), `INSTRUCTIONS.md`, optional `mcp.json` and optional `memory/INDEX.md`. Templates live in `src/ao/agent_templates/`; `ao agents init|new|list|show|templates`.
+- The run **workspace (cwd) is `<data>/workspaces/<name>`, deliberately outside the repo**. With a cwd inside the repo, Claude Code auto-loads this CLAUDE.md into every agent run (+1.8k tokens; measured in KAP-102).
+- Prefer `prompt.mode = "replace"` with `tools.builtin = []` (about 430 input tokens per call). `append` plus tools costs about 17.6k. Only give agents tools they need.
+- A built-in `claude` backend (`claude_code`) exists without any config file.
+
 ## Planned architecture
-- **Agents are directories** `agents/<name>/`: `agent.toml` (backend, model, permissions, clearance, budget), `INSTRUCTIONS.md`, `memory/` (INDEX.md plus fact files), `workspace/` (cwd for runs), optional `mcp.json` (loaded with strict MCP config, so the agent inherits no global servers).
 - **Backends** implement one interface, `run(prompt, context, opts) -> Result(text, usage, …)` plus `health()`. The implementations are `claude_code`, `openai_compat` and `cli_template`. Verify Claude CLI flags against `claude --help`; don't trust memory.
 - **Runner**: pick task → health check → routing/confidentiality guard → budget check → context builder → backend → persist run → apply memory proposals.
 - **State**: SQLite (tasks, runs, usage, events/audit). Linear is the source of truth for human-visible work.
