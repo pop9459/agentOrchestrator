@@ -6,7 +6,8 @@ from typing import Any, Literal, Protocol
 from ao.agents import Agent
 from ao.config import BackendConfig
 
-Outcome = Literal["ok", "error", "timeout"]
+# "refused" is set by the runner (budget), never by a backend.
+Outcome = Literal["ok", "error", "timeout", "refused"]
 
 
 class BackendError(Exception):

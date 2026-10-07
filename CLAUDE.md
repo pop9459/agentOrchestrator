@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Roadmap and tickets: Linear project **P-KAP-10** "Create paperclip clone project" (team KAPSLOK, issues KAP-73…98 plus KAP-45/46/47), https://linear.app/pop9459/project/create-paperclip-clone-project-8e1a10e04d56. Milestones run M0 Foundations → M1 Agent runtime → M2 Company core → M3 Confidential & local → M4 Linear → M5 Connectors → M6 TUI. Branch names follow Linear's `pop9459/kap-NN-…` convention.
 
-**Status:** M0 Foundations done (config, secrets, SQLite store). Next: M1 agent runtime, starting with KAP-76 and KAP-77.
+**Status:** M0 done. M1 done for the Claude Code backend (agents, `ao run`, per-agent MCP, budgets, `ao usage`). The local/OpenAI-compatible (KAP-80) and CLI-template (KAP-81) backends are deferred. Next up is M2 (task runner KAP-83, context builder KAP-84).
 
 ## Commands
 Python ≥3.12 managed by uv; package lives in `src/ao/`, tests in `tests/`.
@@ -54,6 +54,10 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - `ao.backends.base`: `RunRequest` → `Backend.run()` → `Result` (`Usage` counts input, output, cache read/write and cost; `billable_tokens` excludes cache reads). Backends register with `@register("<type>")` in `ao.backends`; built-ins are imported at the bottom of `ao/backends/__init__.py`.
 - `ao.backends.claude_code`: `build_argv()` is a pure function, and its fixed flags (`FIXED_FLAGS`) come from the KAP-102 measurements. The prompt is sent on **stdin**. The child env drops `AO_SECRET_*` and, with `use_subscription` (default), `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`. Timeouts kill the whole process group. `parse_result()` is tested against a real, scrubbed output in `tests/fixtures/`.
 - `ao.run`: `prepare()` (agent → backend → `RunRequest`; system prompt = INSTRUCTIONS then memory index) and `execute()` (runs the backend, writes a `runs` row and a `run.finished` event). CLI: `ao run`. Tests swap the backend for `tests/fakes.py:FakeBackend` by monkeypatching `ao.run.get_backend`.
+
+## Budgets (implemented)
+- `ao.budget.check()` runs inside `run.execute()` **before** the backend. Agent `daily_tokens` (billable = input + cache writes + output), agent `daily_cost_usd` (CLI notional cost) and global `budgets.global_daily_tokens` (non-local backends only) are counted per UTC day. Over a cap → the run is recorded as `refused` and the backend is never called. `--force` runs anyway and logs a `budget.override` event. `per_run_cost_usd` maps to `--max-budget-usd`.
+- `usage_daily` excludes refused runs. `ao usage [--agent] [--since today|Nd|YYYY-MM-DD] [--json]`. `ao run` exit codes: 0 ok, 1 failed/timeout, 2 bad input, 3 refused.
 
 ## Planned architecture
 - **More backends:** `openai_compat` (llama.cpp, KAP-80) and `cli_template` (KAP-81) are deferred. Verify Claude CLI flags against `claude --help`; don't trust memory.

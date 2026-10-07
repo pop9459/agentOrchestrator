@@ -4,11 +4,12 @@ import json
 import sqlite3
 import sys
 from contextlib import closing
+from dataclasses import asdict
 from typing import Annotated
 
 import typer
 
-from ao import __version__, secrets
+from ao import __version__, budget, secrets
 from ao import run as runs
 from ao.agents import (
     AgentError,
@@ -20,7 +21,7 @@ from ao.agents import (
 )
 from ao.backends.base import BackendError
 from ao.config import ConfigError, LoadedConfig, config_files, load_config, redact
-from ao.db import store
+from ao.db import repo, store
 from ao.paths import find_project_root
 
 app = typer.Typer(
@@ -72,6 +73,7 @@ def _open_db(loaded: LoadedConfig) -> sqlite3.Connection:
 
 EXIT_RUN_FAILED = 1
 EXIT_USAGE = 2
+EXIT_REFUSED = 3
 
 
 @app.command("run")
@@ -84,8 +86,14 @@ def run_agent(
         bool, typer.Option("--dry-run", help="Show what would be sent; call nothing.")
     ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Run even if over budget (logged).")
+    ] = False,
 ) -> None:
-    """Run one agent on one prompt and record the run."""
+    """Run one agent on one prompt and record the run.
+
+    Exit codes: 0 ok, 1 run failed or timed out, 2 bad input/config, 3 refused (budget).
+    """
     if prompt is None:
         if sys.stdin.isatty():
             typer.echo("no prompt given (pass it as an argument or on stdin)", err=True)
@@ -112,7 +120,7 @@ def run_agent(
         return
 
     with closing(_open_db(loaded)) as conn:
-        record = runs.execute(conn, prepared)
+        record = runs.execute(conn, prepared, force=force)
     result, usage = record.result, record.result.usage
     if as_json:
         typer.echo(json.dumps({
@@ -124,6 +132,8 @@ def run_agent(
                 "cache_write_tokens": usage.cache_write_tokens, "cost_usd": usage.cost_usd,
             },
         }, indent=2))  # fmt: skip
+    elif result.outcome == "refused":
+        typer.echo(f"refused (run #{record.run_id}): {result.error}", err=True)
     else:
         if result.text:
             typer.echo(result.text)
@@ -137,8 +147,89 @@ def run_agent(
         )
         if result.error:
             typer.echo(f"error: {result.error}", err=True)
+    if result.outcome == "refused":
+        raise typer.Exit(EXIT_REFUSED)
     if result.outcome != "ok":
         raise typer.Exit(EXIT_RUN_FAILED)
+
+
+@app.command("usage")
+def usage(
+    agent: Annotated[str | None, typer.Option("--agent", help="Only this agent.")] = None,
+    since: Annotated[
+        str, typer.Option("--since", help="today, Nd (last N days) or YYYY-MM-DD.")
+    ] = "7d",
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Token and cost totals per agent/backend/model, plus today's budget status."""
+    try:
+        start = budget.parse_since(since)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(EXIT_USAGE) from exc
+    loaded = _load()
+    with closing(_open_db(loaded)) as conn:
+        rows = repo.usage_summary(conn, since=start.isoformat(), agent=agent)
+        budgets = _budget_status(loaded, conn, agent)
+    if as_json:
+        typer.echo(json.dumps({
+            "since": start.isoformat(),
+            "rows": [{**asdict(r), "billable_tokens": r.billable_tokens} for r in rows],
+            "budgets_today": budgets,
+        }, indent=2))  # fmt: skip
+        return
+    typer.echo(f"usage since {start.isoformat()} (UTC)")
+    if not rows:
+        typer.echo("  no runs")
+    else:
+        header = ("agent", "backend", "model", "runs", "in", "out", "cache r", "cache w", "cost")
+        table = [header] + [
+            (r.agent, r.backend, r.model or "-", str(r.runs), f"{r.tokens_in:,}",
+             f"{r.tokens_out:,}", f"{r.cache_read_tokens:,}", f"{r.cache_write_tokens:,}",
+             f"${r.cost_usd:.4f}")
+            for r in rows
+        ]  # fmt: skip
+        widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+        for row in table:
+            typer.echo("  " + "  ".join(
+                col.ljust(w) if i < 3 else col.rjust(w)
+                for i, (col, w) in enumerate(zip(row, widths, strict=True))
+            ))  # fmt: skip
+        total = sum(r.billable_tokens for r in rows)
+        typer.echo(f"  billable tokens (in + cache w + out): {total:,}"
+                   f" · cost ${sum(r.cost_usd for r in rows):.4f}")  # fmt: skip
+    if budgets:
+        typer.echo("budgets today:")
+        for line in budgets:
+            typer.echo(f"  {line['scope']}: {line['used']} / {line['limit']}")
+
+
+def _budget_status(
+    loaded: LoadedConfig, conn: sqlite3.Connection, only_agent: str | None
+) -> list[dict[str, str]]:
+    """Human-readable used/limit lines for every configured daily cap."""
+    day = budget.today()
+    lines = []
+    for name in list_agent_names(loaded):
+        if only_agent and name != only_agent:
+            continue
+        try:
+            cfg = load_agent(loaded, name).config.budget
+        except AgentError:
+            continue
+        spend = budget.agent_spend(conn, name, day)
+        if cfg.daily_tokens is not None:
+            lines.append({"scope": f"{name} tokens", "used": f"{spend.tokens:,}",
+                          "limit": f"{cfg.daily_tokens:,}"})  # fmt: skip
+        if cfg.daily_cost_usd is not None:
+            lines.append({"scope": f"{name} cost", "used": f"${spend.cost_usd:.4f}",
+                          "limit": f"${cfg.daily_cost_usd:.4f}"})  # fmt: skip
+    cap = loaded.config.budgets.global_daily_tokens
+    if cap is not None and not only_agent:
+        local = {n for n, b in loaded.config.backends.items() if b.is_local}
+        used = budget.cloud_tokens(conn, local, day)
+        lines.append({"scope": "global cloud tokens", "used": f"{used:,}", "limit": f"{cap:,}"})
+    return lines
 
 
 @config_app.command("show")
