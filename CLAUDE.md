@@ -30,7 +30,7 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 5. **Confidentiality is enforced in code.** Confidential data never reaches a non-local backend. If the local backend is down, the task waits in the queue and never falls back to the cloud. Only an approved summary crosses the airlock.
 6. **Secrets live only in connector/config code** (keyring or env). They never go into agent dirs, prompts, logs or the DB.
 7. **Runtime output is user data, never repo content.** The repo is public. Everything ao creates or changes at runtime stays gitignored or under the data dir: `agents/`, memory, workspaces, the DB, `.env`, `ao.local.toml`. Only generic templates and examples are committed.
-8. **Outward actions need human approval.** The orchestrator must not write to Linear until the KAP-95 approval gate exists, and then only to allowlisted projects. Mail is read-only permanently.
+8. **Outward actions need human approval.** ao writes to Linear **only** through `ao.linear.changes`: propose → pending change set → explicit `apply`. Only projects in `[linear] write_projects` are allowed (currently the "ao sandbox" project), and this is re-checked against live data at apply time. Never add another mutation path. Mail is read-only permanently.
 
 ## Config, secrets and paths (implemented)
 - `ao.config.load_config()` deep-merges `~/.config/ao/ao.toml` < `<project>/ao.toml` < `<project>/ao.local.toml` (gitignored) into strict Pydantic models (`extra="forbid"`; errors give dotted key paths and the source file). See `ao.example.toml`. The project root is the nearest ancestor containing `ao.toml`/`ao.local.toml`/`.git`.
@@ -85,7 +85,8 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - Python code talks to Linear's GraphQL API itself (`ao.linear.client`, httpx) using a personal API key (`AO_SECRET_LINEAR` in `.env`). The claude.ai Linear connector is not usable from code.
 - Linear rejects "too complex" queries. Keep nested lists bounded (`first:`) and fetch metadata in separate small queries (team/states, projects, labels, milestones), as `LinearClient.team()` does. Verify new queries against the live API.
 - `ao linear sync [--full]` mirrors the whole team into `linear_issues` plus `linear_meta` (states, labels, projects with milestones, `last_sync`). It is incremental by `updatedAt`, and `--full` drops deleted issues. Issues are **not** tasks. `ao linear task KAP-n --agent X [--run]` is the explicit hand-off, which sets `tasks.linear_issue_id`.
-- Tests use `tests/linear_fake.py` (`FakeLinear`, an httpx MockTransport).
+- **Writes (KAP-95):** `linear_changes` rows (`create_issue` | `update_issue` | `comment`). `propose_*` validates names against `linear_meta` and the allowlist and sends **nothing**. `apply()` re-checks the allowlist against the issue's *live* project, then runs the GraphQL mutation (the mutations live in `changes.py`; the client has none). The outcome is applied or failed, and every step is logged as an event. CLI: `ao linear new|edit|comment` (propose), `pending|change N|apply N [--yes]|reject N`. `ao linear task … --run --comment-back` proposes a result comment.
+- Tests use `tests/linear_fake.py` (`FakeLinear`, an httpx MockTransport; `fake.mutations()` asserts nothing was sent).
 
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.

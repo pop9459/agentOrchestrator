@@ -134,7 +134,28 @@ class FakeLinear:
         return httpx.Response(200, json={"errors": [{"message": "unknown query"}]})
 
     def mutate(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError
+        if "issueCreate" in query:
+            data = variables["input"]
+            n = 100 + len([i for i in self.issues if i["identifier"].startswith("KAP-1")])
+            node = issue_node(n, project=data["projectId"], labels=())
+            node["title"] = data["title"]
+            node["description"] = data.get("description")
+            self.issues.append(node)
+            return {"issueCreate": {"success": True, "issue": node}}
+        if "issueUpdate" in query:
+            node = next(i for i in self.issues if i["id"] == variables["id"])
+            for key in ("title", "description", "priority"):
+                if key in variables["input"]:
+                    node[key] = variables["input"][key]
+            return {"issueUpdate": {"success": True, "issue": node}}
+        if "commentCreate" in query:
+            return {
+                "commentCreate": {
+                    "success": True,
+                    "comment": {"id": "c-1", "url": "https://linear.app/c-1"},
+                }
+            }
+        raise AssertionError(f"unexpected mutation {query}")
 
     def client(self) -> LinearClient:
         return LinearClient(
