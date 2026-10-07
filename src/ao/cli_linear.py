@@ -6,9 +6,10 @@ from typing import Annotated
 import typer
 
 from ao import runner
+from ao.agents import AgentError
 from ao.cli_common import EXIT_RUN_FAILED, fail, load_or_exit, open_db
 from ao.db import repo
-from ao.linear import changes, mirror
+from ao.linear import board, changes, mirror
 from ao.linear.client import LinearError, client_from_config
 from ao.linear.sync import sync
 
@@ -272,3 +273,83 @@ def linear_reject(change_id: int) -> None:
         except changes.ChangeError as exc:
             raise fail(str(exc)) from exc
     typer.echo(f"rejected #{change_id}")
+
+
+# --- board manager (KAP-94): drafts and reviews become change sets ---------------------------
+
+
+@linear_app.command("draft")
+def linear_draft(
+    idea: Annotated[
+        str, typer.Argument(help="Raw idea; the board manager turns it into an issue.")
+    ],
+    project: Annotated[str | None, typer.Option("--project", help="Target project.")] = None,
+) -> None:
+    """Have the board manager draft an issue; it becomes a pending change set."""
+    loaded = load_or_exit()
+    with closing(open_db(loaded)) as conn:
+        try:
+            result = board.draft(conn, loaded, idea, project)
+        except (changes.ChangeError, AgentError) as exc:
+            raise fail(str(exc)) from exc
+        data = result.data
+        typer.echo(f"# draft (run #{result.run_id}): {data.get('title')}")
+        typer.echo(f"# reasoning: {data.get('reasoning', '')}")
+        for warning in result.warnings:
+            typer.echo(f"# warning: {warning}")
+        if result.change is None:
+            typer.echo(f"# not proposable: {result.error}")
+            typer.echo(data.get("description", ""))
+            raise typer.Exit(EXIT_RUN_FAILED)
+        typer.echo(changes.render(conn, result.change))
+    typer.echo(
+        f"apply with `ao linear apply {result.change.id}` or drop with "
+        f"`ao linear reject {result.change.id}`"
+    )
+
+
+@linear_app.command("review")
+def linear_review(
+    project: Annotated[str | None, typer.Option("--project", help="Only this project.")] = None,
+    propose: Annotated[
+        bool, typer.Option("--propose", help="Turn suggestions into pending change sets.")
+    ] = False,
+) -> None:
+    """Board review: stale issues, missing info, suggested changes (read-only by default)."""
+    loaded = load_or_exit()
+    with closing(open_db(loaded)) as conn:
+        try:
+            result = board.review(conn, loaded, project, propose=propose)
+        except (changes.ChangeError, AgentError) as exc:
+            raise fail(str(exc)) from exc
+    data = result.data
+    typer.echo(f"# reviewed {result.issue_count} open issues (run #{result.run_id})")
+    typer.echo(data.get("summary", ""))
+    if data.get("stale"):
+        typer.echo("stale: " + ", ".join(data["stale"]))
+    for item in data.get("missing_info", []):
+        typer.echo(f"missing: {item.get('identifier')}: {item.get('what')}")
+    for item in data.get("suggestions", []):
+        typer.echo(
+            f"suggest: {item.get('identifier')} {item.get('field')} → "
+            f"{item.get('value')} ({item.get('reason')})"
+        )
+    for change in result.proposed:
+        typer.echo(f"proposed change #{change.id}: {change.summary}")
+    for skipped in result.skipped:
+        typer.echo(f"not proposed: {skipped}")
+
+
+@linear_app.command("seed-memory")
+def linear_seed_memory() -> None:
+    """Write board conventions (label descriptions, house rules) into linear-manager's memory."""
+    loaded = load_or_exit()
+    with closing(open_db(loaded)) as conn:
+        try:
+            outcome = board.seed_memory(conn, loaded)
+        except AgentError as exc:
+            raise fail(f"{exc} (create it with `ao agents new linear-manager`)") from exc
+    typer.echo(
+        f"{len(outcome.applied)} facts written, {len(outcome.facts)} in memory"
+        + (f", {len(outcome.rejected)} rejected" if outcome.rejected else "")
+    )

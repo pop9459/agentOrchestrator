@@ -68,6 +68,11 @@ class MemoryConfig(StrictModel):
     max_facts: int = Field(default=40, ge=1, le=500)
 
 
+class ContextConfig(StrictModel):
+    # Extra system sections added on every run (see ao.context_providers).
+    providers: list[Literal["linear_board"]] = []
+
+
 class AgentConfig(StrictModel):
     role: str = Field(min_length=1)
     backend: str = "claude"
@@ -78,6 +83,7 @@ class AgentConfig(StrictModel):
     limits: LimitsConfig = LimitsConfig()
     budget: BudgetConfig = BudgetConfig()
     memory: MemoryConfig = MemoryConfig()
+    context: ContextConfig = ContextConfig()
 
 
 @dataclass(frozen=True)

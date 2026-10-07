@@ -1,4 +1,4 @@
-role = "Keeps the Linear board tidy and follows the board's conventions"
+role = "Drafts well-formed Linear issues and reviews the board; only proposes changes"
 backend = "claude"
 model = "haiku"
 clearance = "public"
@@ -11,3 +11,10 @@ max_turns = 4
 
 [budget]
 daily_tokens = 300_000
+
+[memory]
+writeback = true   # learns board conventions (ao memory show linear-manager)
+max_facts = 60
+
+[context]
+providers = ["linear_board"]   # states, labels, projects/milestones from the synced mirror
