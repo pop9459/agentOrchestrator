@@ -60,6 +60,7 @@ def test_minimal_argv_uses_cheapest_flags(agent):
     assert argv[0] == "claude"
     assert tuple(argv[1 : 1 + len(FIXED_FLAGS)]) == FIXED_FLAGS
     assert "--strict-mcp-config" in argv and "--disable-slash-commands" in argv
+    assert "--restricted" in argv and flag(argv, "--permission-mode") == "dontAsk"
     assert flag(argv, "--system-prompt") == "SYS"
     assert "--append-system-prompt" not in argv
     assert flag(argv, "--tools") == ""
@@ -218,3 +219,22 @@ def test_live_minimal_run(agent):
     assert result.outcome == "ok", result.error
     assert "pong" in result.text.lower()
     assert 0 < result.usage.input_tokens + result.usage.cache_read_tokens < 3000
+
+
+@pytest.mark.live
+@pytest.mark.skipif(os.environ.get("AO_LIVE") != "1", reason="set AO_LIVE=1 to call real claude")
+def test_live_read_outside_workspace_is_denied(agent, tmp_path):
+    secret = tmp_path / "outside.txt"
+    secret.write_text("OUTSIDE-MARK-456")
+    inside = agent.workspace / "inside.txt"
+    agent.workspace.mkdir(parents=True, exist_ok=True)
+    inside.write_text("INSIDE-MARK-123")
+    reader = with_config(agent, tools={"builtin": ["Read"]})
+    backend = ClaudeCodeBackend("claude", BackendConfig(type="claude_code"))
+    system = "Use the Read tool when asked and reply with the exact file content or error."
+
+    ok = backend.run(request_for(reader, system_prompt=system, prompt="Read ./inside.txt"))
+    assert "INSIDE-MARK-123" in ok.text
+    denied = backend.run(request_for(reader, system_prompt=system, prompt=f"Read {secret}"))
+    assert "OUTSIDE-MARK-456" not in denied.text
+    assert denied.raw["permission_denials"]

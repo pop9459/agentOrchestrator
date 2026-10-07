@@ -128,6 +128,7 @@ def load_agent(loaded: LoadedConfig, name: str) -> Agent:
     instructions_path = directory / INSTRUCTIONS_FILE
     if not instructions_path.is_file():
         raise AgentError(f"agent {name!r} has no {INSTRUCTIONS_FILE}")
+    _check_add_dirs(loaded, directory, config.tools.add_dirs)
     memory_path = directory / MEMORY_INDEX
     mcp_path = directory / MCP_FILE
     if mcp_path.is_file():
@@ -144,6 +145,24 @@ def load_agent(loaded: LoadedConfig, name: str) -> Agent:
         mcp_config=mcp_path if mcp_path.is_file() else None,
         workspace=loaded.workspaces_dir / name,
     )
+
+
+def _overlaps(a: Path, b: Path) -> bool:
+    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
+
+
+def _check_add_dirs(loaded: LoadedConfig, agent_dir_: Path, add_dirs: list[Path]) -> None:
+    """Extra dirs must not expose ao's own state: other agents (instructions, memory),
+    the DB or other workspaces. Ancestors of those (e.g. the repo or $HOME) count too."""
+    protected = {
+        "the agents dir": loaded.agents_dir.resolve(),
+        "the ao data dir": loaded.data.root.resolve(),
+    }
+    for raw in add_dirs:
+        resolved = (raw if raw.is_absolute() else agent_dir_ / raw).expanduser().resolve()
+        for label, path in protected.items():
+            if _overlaps(resolved, path):
+                raise AgentError(f"tools.add_dirs entry {str(raw)!r} overlaps {label} ({path})")
 
 
 def agent_problem(loaded: LoadedConfig, agent: Agent) -> str | None:

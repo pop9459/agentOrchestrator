@@ -53,9 +53,30 @@ def test_optional_files_are_picked_up(isolated_env):
 
 
 def test_add_dirs_resolve_relative_to_agent_dir(isolated_env):
-    directory = make_agent(isolated_env, "scout", 'role = "r"\n[tools]\nadd_dirs = ["../shared"]\n')
+    toml = 'role = "r"\n[tools]\nadd_dirs = ["../../shared"]\n'
+    directory = make_agent(isolated_env, "scout", toml)
     agent = load_agent(load_config(), "scout")
-    assert agent.add_dirs == [(directory / "../shared").resolve()]
+    assert agent.add_dirs == [(directory / "../../shared").resolve()]
+    assert agent.add_dirs == [isolated_env / "shared"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "label"),
+    [
+        ("../other", "agents dir"),  # a sibling agent
+        ("..", "agents dir"),  # all agents
+        ("../..", "agents dir"),  # the repo (ancestor of agents/)
+        ("{data}", "ao data dir"),
+        ("{data}/workspaces/other", "ao data dir"),
+        ("{home}", "agents dir"),  # $HOME is an ancestor of everything
+    ],
+)
+def test_add_dirs_must_not_expose_ao_state(isolated_env, entry, label):
+    loaded = load_config()
+    entry = entry.format(data=loaded.data.root, home=isolated_env.parent)
+    make_agent(isolated_env, "scout", f'role = "r"\n[tools]\nadd_dirs = ["{entry}"]\n')
+    with pytest.raises(AgentError, match=f"overlaps the {label}"):
+        load_agent(loaded, "scout")
 
 
 def test_invalid_config_reports_dotted_path(isolated_env):
