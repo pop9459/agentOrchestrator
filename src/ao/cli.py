@@ -1,12 +1,15 @@
 """`ao` command-line entrypoint."""
 
 import json
+import sqlite3
+import sys
 from contextlib import closing
 from typing import Annotated
 
 import typer
 
 from ao import __version__, secrets
+from ao import run as runs
 from ao.agents import (
     AgentError,
     agent_problem,
@@ -15,6 +18,7 @@ from ao.agents import (
     load_agent,
     template_names,
 )
+from ao.backends.base import BackendError
 from ao.config import ConfigError, LoadedConfig, config_files, load_config, redact
 from ao.db import store
 from ao.paths import find_project_root
@@ -57,6 +61,84 @@ def _load() -> LoadedConfig:
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
+
+
+def _open_db(loaded: LoadedConfig) -> sqlite3.Connection:
+    """Open the state DB, creating/upgrading it as needed (migrations are cheap no-ops)."""
+    conn = store.connect(loaded.data.ensure().db_path)
+    store.migrate(conn)
+    return conn
+
+
+EXIT_RUN_FAILED = 1
+EXIT_USAGE = 2
+
+
+@app.command("run")
+def run_agent(
+    agent: Annotated[str, typer.Argument(help="Agent name.")],
+    prompt: Annotated[
+        str | None, typer.Argument(help="Prompt; read from stdin if omitted.")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be sent; call nothing.")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Run one agent on one prompt and record the run."""
+    if prompt is None:
+        if sys.stdin.isatty():
+            typer.echo("no prompt given (pass it as an argument or on stdin)", err=True)
+            raise typer.Exit(EXIT_USAGE)
+        prompt = sys.stdin.read()
+    loaded = _load()
+    try:
+        prepared = runs.prepare(loaded, agent, prompt)
+    except (AgentError, BackendError, runs.RunError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    if dry_run:
+        typer.echo(f"# backend: {prepared.backend.name} ({prepared.backend.config.type})")
+        typer.echo(f"# cwd: {prepared.agent.workspace}")
+        typer.echo(
+            f"# estimated tokens (ours, excl. backend overhead): {prepared.estimated_tokens}"
+        )
+        typer.echo(prepared.backend.preview(prepared.request))
+        typer.echo("# --- system prompt ---")
+        typer.echo(prepared.request.system_prompt)
+        typer.echo("# --- prompt ---")
+        typer.echo(prepared.request.prompt)
+        return
+
+    with closing(_open_db(loaded)) as conn:
+        record = runs.execute(conn, prepared)
+    result, usage = record.result, record.result.usage
+    if as_json:
+        typer.echo(json.dumps({
+            "run_id": record.run_id, "outcome": result.outcome, "text": result.text,
+            "model": result.model, "error": result.error, "duration_ms": result.duration_ms,
+            "usage": {
+                "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                "cache_read_tokens": usage.cache_read_tokens,
+                "cache_write_tokens": usage.cache_write_tokens, "cost_usd": usage.cost_usd,
+            },
+        }, indent=2))  # fmt: skip
+    else:
+        if result.text:
+            typer.echo(result.text)
+        cost = f" · ${usage.cost_usd:.4f}" if usage.cost_usd is not None else ""
+        secs = f" · {result.duration_ms / 1000:.1f}s" if result.duration_ms is not None else ""
+        typer.echo(
+            f"[{result.outcome} · {result.model or '?'} · in {usage.input_tokens}"
+            f" out {usage.output_tokens} cache r{usage.cache_read_tokens}"
+            f" w{usage.cache_write_tokens}{cost}{secs} · run #{record.run_id}]",
+            err=True,
+        )
+        if result.error:
+            typer.echo(f"error: {result.error}", err=True)
+    if result.outcome != "ok":
+        raise typer.Exit(EXIT_RUN_FAILED)
 
 
 @config_app.command("show")
