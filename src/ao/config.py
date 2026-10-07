@@ -1,12 +1,13 @@
 """Typed configuration merged from TOML files.
 
-Merge order (later wins): built-in defaults < user `~/.config/ao/ao.toml`
+Merge order (later wins): built-in `DEFAULTS` < user `~/.config/ao/ao.toml`
 < project `ao.toml` < project `ao.local.toml` (gitignored).
 
 Config never holds secret values, only secret *names* (e.g. `api_key_secret = "llama"`)
 that `ao.secrets.get_secret` resolves at use time.
 """
 
+import copy
 import re
 import tomllib
 from dataclasses import dataclass
@@ -24,17 +25,17 @@ class ConfigError(Exception):
     """Config could not be read or failed validation."""
 
 
-class _Strict(BaseModel):
+class StrictModel(BaseModel):
     # Unknown keys are errors, so typos surface instead of being silently ignored.
     model_config = ConfigDict(extra="forbid")
 
 
-class PathsConfig(_Strict):
+class PathsConfig(StrictModel):
     agents_dir: Path = Path("agents")
     data_dir: Path | None = None
 
 
-class BackendConfig(_Strict):
+class BackendConfig(StrictModel):
     type: Literal["claude_code", "openai_compat", "cli_template"]
     model: str | None = None
     base_url: str | None = None
@@ -42,16 +43,22 @@ class BackendConfig(_Strict):
     api_key_secret: str | None = Field(default=None, pattern=SECRET_REF)
     is_local: bool = False
     timeout_s: float = Field(default=300, gt=0)
+    # claude_code: drop ANTHROPIC_API_KEY from the child env so runs bill the Pro subscription.
+    use_subscription: bool = True
 
 
-class BudgetsConfig(_Strict):
+class BudgetsConfig(StrictModel):
     global_daily_tokens: int | None = Field(default=None, ge=0)
 
 
-class AoConfig(_Strict):
+class AoConfig(StrictModel):
     paths: PathsConfig = PathsConfig()
     backends: dict[str, BackendConfig] = {}
     budgets: BudgetsConfig = BudgetsConfig()
+
+
+# Base layer under all config files; a `claude` backend works out of the box.
+DEFAULTS: dict[str, Any] = {"backends": {"claude": {"type": "claude_code", "command": "claude"}}}
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,12 @@ class LoadedConfig:
     @property
     def data(self) -> DataDirs:
         return resolve_data_dir(self.config.paths.data_dir, self.project_root)
+
+    @property
+    def workspaces_dir(self) -> Path:
+        # Outside the repo on purpose: a cwd inside it makes Claude Code auto-load the
+        # repo CLAUDE.md into every agent run (KAP-102).
+        return self.data.root / "workspaces"
 
 
 def config_files(project_root: Path) -> list[Path]:
@@ -101,8 +114,12 @@ def _origin_for(dotted: str, origins: dict[str, Path]) -> Path | None:
     return None
 
 
-def _format_validation_error(err: ValidationError, origins: dict[str, Path]) -> str:
-    lines = ["Invalid configuration:"]
+def format_validation_error(
+    err: ValidationError, origins: dict[str, Path] | None = None, title="Invalid configuration:"
+) -> str:
+    """One line per issue: dotted key path, message and (if known) the file it came from."""
+    origins = origins or {}
+    lines = [title]
     for issue in err.errors():
         dotted = ".".join(str(part) for part in issue["loc"])
         origin = _origin_for(dotted, origins)
@@ -113,7 +130,7 @@ def _format_validation_error(err: ValidationError, origins: dict[str, Path]) -> 
 
 def load_config(project_root: Path | None = None) -> LoadedConfig:
     root = project_root or find_project_root()
-    merged: dict[str, Any] = {}
+    merged: dict[str, Any] = copy.deepcopy(DEFAULTS)
     origins: dict[str, Path] = {}
     sources: list[Path] = []
     for path in config_files(root):
@@ -129,7 +146,7 @@ def load_config(project_root: Path | None = None) -> LoadedConfig:
     try:
         config = AoConfig.model_validate(merged)
     except ValidationError as exc:
-        raise ConfigError(_format_validation_error(exc, origins)) from exc
+        raise ConfigError(format_validation_error(exc, origins)) from exc
     return LoadedConfig(config=config, project_root=root, sources=sources)
 
 

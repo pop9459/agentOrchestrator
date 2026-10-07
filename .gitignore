@@ -10,3 +10,7 @@ build/
 # local config and secrets
 .env
 ao.local.toml
+
+# ao runtime user data: real agents (instructions, memory) live here, never in git.
+# Generic templates ship in src/ao/agent_templates/.
+/agents/

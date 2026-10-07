@@ -22,9 +22,19 @@ def write(path: Path, text: str) -> Path:
 def test_defaults_without_files(isolated_env):
     loaded = load_config()
     assert loaded.sources == []
-    assert loaded.config.backends == {}
+    assert set(loaded.config.backends) == {"claude"}  # built-in default
+    assert loaded.config.backends["claude"].type == "claude_code"
     assert loaded.agents_dir == isolated_env / "agents"
     assert loaded.data.root == isolated_env.parent / "xdg-data" / "ao"
+
+
+def test_user_backends_merge_with_builtin_claude(isolated_env):
+    write(isolated_env / "ao.toml", '[backends.local]\ntype = "openai_compat"\n'
+          '[backends.claude]\nmodel = "haiku"\n')  # fmt: skip
+    backends = load_config().config.backends
+    assert set(backends) == {"claude", "local"}
+    assert backends["claude"].type == "claude_code"
+    assert backends["claude"].model == "haiku"
 
 
 def test_merge_order_user_project_local(isolated_env):

@@ -1,0 +1,13 @@
+role = "Keeps the Linear board tidy and follows the board's conventions"
+backend = "claude"
+model = "haiku"
+clearance = "public"
+
+[prompt]
+mode = "replace"
+
+[limits]
+max_turns = 4
+
+[budget]
+daily_tokens = 300_000

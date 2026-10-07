@@ -1,0 +1,9 @@
+role = "Works on confidential data locally and returns only summaries"
+backend = "local"   # OpenAI-compatible llama.cpp server (KAP-80); configure [backends.local] first
+clearance = "confidential"
+
+[prompt]
+mode = "replace"
+
+[limits]
+max_turns = 4

@@ -1,0 +1,19 @@
+role = "Describe this agent's job in one line"
+backend = "claude"
+model = "haiku"
+clearance = "public"
+
+[prompt]
+mode = "replace"   # replace: INSTRUCTIONS.md is the whole system prompt (cheapest). append: needed for tool use.
+
+[tools]
+builtin = []       # e.g. ["Read", "Grep"]; [] = no tools (cheapest)
+allow = []
+deny = []
+add_dirs = []
+
+[limits]
+max_turns = 4
+
+[budget]
+daily_tokens = 200_000
