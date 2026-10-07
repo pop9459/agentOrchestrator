@@ -56,7 +56,11 @@ def build_system_prompt(agent: Agent) -> str:
     return "\n\n".join(parts)
 
 
-def prepare(loaded: LoadedConfig, agent_name: str, prompt: str) -> PreparedRun:
+def prepare(
+    loaded: LoadedConfig, agent_name: str, prompt: str, *, attachments: list[str] | None = None
+) -> PreparedRun:
+    if attachments:
+        raise RunError("attachments are not supported yet (KAP-84)")
     agent = load_agent(loaded, agent_name)
     if problem := agent_problem(loaded, agent):
         raise RunError(f"agent {agent_name!r} cannot run: {problem}")
