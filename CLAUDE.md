@@ -55,6 +55,10 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - `ao.backends.claude_code`: `build_argv()` is a pure function, and its fixed flags (`FIXED_FLAGS`) come from the KAP-102 measurements. The prompt is sent on **stdin**. The child env drops `AO_SECRET_*` and, with `use_subscription` (default), `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`. Timeouts kill the whole process group. `parse_result()` is tested against a real, scrubbed output in `tests/fixtures/`.
 - `ao.run`: `prepare()` (agent → backend → `RunRequest`; system prompt = INSTRUCTIONS then memory index) and `execute()` (runs the backend, writes a `runs` row and a `run.finished` event). CLI: `ao run`. Tests swap the backend for `tests/fakes.py:FakeBackend` by monkeypatching `ao.run.get_backend`.
 
+## Context builder (implemented)
+- `ao.context.build()` assembles every prompt in this order. System part (stable, cacheable): instructions → `## Memory` index → extra system sections (roster etc.). Prompt part: attachments as `<document path=…>` → task. Nothing implicit is ever added.
+- Attachments must be UTF-8 files of at most 200 KB. An estimate over `limits.max_context_tokens` (default 30k) refuses the run. `--dry-run` prints the per-section table. Prompt snapshots live in `tests/snapshots/` (`AO_UPDATE_SNAPSHOTS=1` rewrites them).
+
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
 - In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).

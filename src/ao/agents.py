@@ -52,6 +52,7 @@ class ToolsConfig(StrictModel):
 class LimitsConfig(StrictModel):
     timeout_s: float | None = Field(default=None, gt=0)  # None: backend default
     max_turns: int = Field(default=8, ge=1)
+    max_context_tokens: int = Field(default=30_000, ge=100)  # estimate; over → refused
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
 
 

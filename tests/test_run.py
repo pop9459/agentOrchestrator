@@ -9,7 +9,7 @@ from ao.backends.base import BackendError, Result, Usage
 from ao.cli import app
 from ao.config import BackendConfig, load_config
 from ao.db import repo, store
-from ao.run import RunError, build_system_prompt, execute, prepare
+from ao.run import RunError, execute, prepare
 from fakes import FakeBackend
 
 runner = CliRunner()
@@ -37,7 +37,7 @@ def test_system_prompt_has_instructions_then_memory(loaded, fake):
     system = prepared.request.system_prompt
     assert system.startswith("You catalogue")
     assert system.endswith("## Memory\n- user likes bullet lists")
-    assert build_system_prompt(prepared.agent) == system
+    assert prepared.request.prompt == "hi"
 
 
 def test_prepare_resolves_model_and_budget(loaded, fake):

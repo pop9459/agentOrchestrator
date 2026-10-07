@@ -1,6 +1,7 @@
 """`ao task …` commands."""
 
 from contextlib import closing
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -58,7 +59,7 @@ def task_add(
         task = repo.add_task(
             conn, title, body_text, agent=agent, parent_id=parent, depth=depth,
             classification="confidential" if confidential else "public",
-            attachments=[str(p) for p in attach or []],
+            attachments=[str(Path(p).resolve()) for p in attach or []],
         )  # fmt: skip
         repo.log_event(conn, "task.queued", agent=agent, task_id=task.id)
     typer.echo(f"queued #{task.id}")
