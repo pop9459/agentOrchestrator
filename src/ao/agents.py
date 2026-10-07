@@ -20,6 +20,7 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Literal
 
+import tomli_w
 from pydantic import Field, ValidationError
 
 from ao import mcp
@@ -176,6 +177,32 @@ def agent_problem(loaded: LoadedConfig, agent: Agent) -> str | None:
     if agent.config.backend not in loaded.config.backends:
         return f"backend {agent.config.backend!r} not configured"
     return None
+
+
+def render_config(config: AgentConfig) -> str:
+    """Compact agent.toml text: defaults are omitted, except the key identity fields."""
+    data = config.model_dump(mode="json", exclude_defaults=True)
+    head = {"role": config.role, "backend": config.backend}
+    if config.model:
+        head["model"] = config.model
+    head["clearance"] = config.clearance
+    return tomli_w.dumps({**head, **{k: v for k, v in data.items() if k not in head}})
+
+
+def write_agent(loaded: LoadedConfig, name: str, config: AgentConfig, instructions: str) -> Path:
+    """Create `agents/<name>/` from a config; refuses to overwrite, rolls back if invalid."""
+    directory = agent_dir(loaded, name)
+    if directory.exists():
+        raise AgentError(f"agent {name!r} already exists at {directory}")
+    directory.mkdir(parents=True)
+    try:
+        (directory / AGENT_FILE).write_text(render_config(config))
+        (directory / INSTRUCTIONS_FILE).write_text(instructions.strip() + "\n")
+        load_agent(loaded, name)
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    return directory
 
 
 # --- templates -------------------------------------------------------------------------
