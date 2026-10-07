@@ -73,6 +73,9 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - `ao.jarvis.handle()`: one request = one parent task for `jarvis`. Jarvis returns `{reply, delegations[]}` via `--json-schema` and sees only the roster (`roster()`: runnable agents except `jarvis` and `hiring`). Delegations become child tasks that **auto-run** through the runner, so all guards apply. The results go back to Jarvis for the final reply. Limits: `MAX_DELEGATIONS = 4` per round and `MAX_ROUNDS = 2`.
 - `ao ask` is stateless; its follow-up call repeats the original request. `ao chat` keeps one Claude session (`persist_session`/`--resume`, id stored in `<data>/chat/jarvis.session`, `--resume` continues it), so later turns are mostly cache reads. `RunRequest.persist_session`/`resume_session_id` drive this; every other run uses `--no-session-persistence`.
 
+## Hiring (implemented)
+- `ao hire "<need>" [--yes]`: the `hiring` agent (template; auto-created if missing) gets a catalogue of existing agents and configured backends, and returns a structured proposal. Its selection rules are in its INSTRUCTIONS: confidential → local, triage → haiku, judgement → sonnet, tools only if needed. `ao.hiring.propose()` validates the proposal through `AgentConfig` (one re-ask on a name collision) and adds warnings, for example an unconfigured backend. `agents.write_agent()` writes a compact `agent.toml` (`render_config`, tomli-w) only after approval.
+
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
 - In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).

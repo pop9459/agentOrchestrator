@@ -28,6 +28,7 @@ from ao.cli_common import (
     open_db,
     text_or_stdin,
 )
+from ao.cli_hiring import hire
 from ao.cli_jarvis import ask, chat
 from ao.cli_memory import memory_app
 from ao.cli_tasks import task_app
@@ -51,6 +52,7 @@ app.add_typer(task_app, name="task")
 app.add_typer(memory_app, name="memory")
 app.command("ask")(ask)
 app.command("chat")(chat)
+app.command("hire")(hire)
 
 
 def _version_callback(value: bool) -> None:

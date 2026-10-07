@@ -1,0 +1,15 @@
+role = "Designs new agents: role, backend/model, tools, budget and instructions"
+backend = "claude"
+model = "sonnet"
+clearance = "public"
+
+[prompt]
+mode = "replace"
+
+[limits]
+max_turns = 3
+effort = "low"
+
+[budget]
+daily_tokens = 200_000
+per_run_cost_usd = 0.5
