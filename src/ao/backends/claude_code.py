@@ -64,7 +64,13 @@ def build_argv(
         argv += ["--disallowedTools", ",".join(agent.tools.deny)]
     for directory in request.agent.add_dirs:
         argv += ["--add-dir", str(directory)]
-    argv += ["--max-turns", str(agent.limits.max_turns)]
+    # Structured output costs one extra turn (claude returns it via an internal tool call).
+    turns = (
+        max(agent.limits.max_turns, 2)
+        if request.json_schema is not None
+        else agent.limits.max_turns
+    )
+    argv += ["--max-turns", str(turns)]
     if agent.limits.effort:
         argv += ["--effort", agent.limits.effort]
     if request.max_cost_usd is not None:
@@ -126,6 +132,9 @@ def parse_result(stdout: str, returncode: int, stderr: str = "") -> Result:
         duration_ms=data.get("duration_ms"),
         error=error,
         raw=data,
+        structured=structured
+        if isinstance(structured := data.get("structured_output"), dict)
+        else None,
     )
 
 

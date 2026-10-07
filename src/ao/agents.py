@@ -62,6 +62,11 @@ class BudgetConfig(StrictModel):
     per_run_cost_usd: float | None = Field(default=None, gt=0)
 
 
+class MemoryConfig(StrictModel):
+    writeback: bool = False  # agent may propose memory ops (adds a structured-output turn)
+    max_facts: int = Field(default=40, ge=1, le=500)
+
+
 class AgentConfig(StrictModel):
     role: str = Field(min_length=1)
     backend: str = "claude"
@@ -71,6 +76,7 @@ class AgentConfig(StrictModel):
     tools: ToolsConfig = ToolsConfig()
     limits: LimitsConfig = LimitsConfig()
     budget: BudgetConfig = BudgetConfig()
+    memory: MemoryConfig = MemoryConfig()
 
 
 @dataclass(frozen=True)

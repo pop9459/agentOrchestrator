@@ -49,6 +49,7 @@ class Result:
     duration_ms: int | None = None
     error: str | None = None
     raw: dict[str, Any] | None = None
+    structured: dict[str, Any] | None = None  # set when the request had a json_schema
 
 
 @dataclass(frozen=True)

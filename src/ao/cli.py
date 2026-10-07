@@ -28,6 +28,7 @@ from ao.cli_common import (
     open_db,
     text_or_stdin,
 )
+from ao.cli_memory import memory_app
 from ao.cli_tasks import task_app
 from ao.config import LoadedConfig, config_files, redact
 from ao.context import describe as describe_context
@@ -46,6 +47,7 @@ app.add_typer(db_app, name="db")
 agents_app = typer.Typer(help="Create and inspect agents.", no_args_is_help=True)
 app.add_typer(agents_app, name="agents")
 app.add_typer(task_app, name="task")
+app.add_typer(memory_app, name="memory")
 
 
 def _version_callback(value: bool) -> None:
