@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ao import budget, context, mcp, memory
+from ao import budget, context, context_providers, mcp, memory
 from ao.agents import Agent, agent_problem, load_agent
 from ao.backends import get_backend
 from ao.backends.base import Backend, Result, RunRequest
@@ -103,6 +103,10 @@ def prepare(
             raise RunError(f"{agent.mcp_config}: {exc}") from exc
     writeback = agent.config.memory.writeback if writeback is None else writeback
     extra = list(extra_system)
+    for provider in agent.config.context.providers:
+        name, text = context_providers.PROVIDERS[provider](loaded)
+        if name not in {n for n, _ in extra}:  # callers may pass the same section explicitly
+            extra.append((name, text))
     if writeback:
         extra.append(("memory-protocol", memory.PROTOCOL))
         output_schema = with_memory_ops(output_schema or REPLY_SCHEMA)

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Roadmap and tickets: Linear project **P-KAP-10** "Create paperclip clone project" (team KAPSLOK, issues KAP-73…98 plus KAP-45/46/47), https://linear.app/pop9459/project/create-paperclip-clone-project-8e1a10e04d56. Milestones run M0 Foundations → M1 Agent runtime → M2 Company core → M3 Confidential & local → M4 Linear → M5 Connectors → M6 TUI. Branch names follow Linear's `pop9459/kap-NN-…` convention.
 
-**Status:** M0 and M2 done. M1 is done for the Claude Code backend; the local/OpenAI-compatible (KAP-80) and CLI-template (KAP-81) backends are deferred. Next up is M3 (confidentiality and local, which needs KAP-80) or M4 (Linear).
+**Status:** M0, M2 and M4 done. M1 is done for the Claude Code backend; the local/OpenAI-compatible (KAP-80) and CLI-template (KAP-81) backends are deferred. Next up is M3 (confidentiality and local, which needs KAP-80) or M5 (connectors).
 
 ## Commands
 Python ≥3.12 managed by uv; package lives in `src/ao/`, tests in `tests/`.
@@ -86,6 +86,12 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - Linear rejects "too complex" queries. Keep nested lists bounded (`first:`) and fetch metadata in separate small queries (team/states, projects, labels, milestones), as `LinearClient.team()` does. Verify new queries against the live API.
 - `ao linear sync [--full]` mirrors the whole team into `linear_issues` plus `linear_meta` (states, labels, projects with milestones, `last_sync`). It is incremental by `updatedAt`, and `--full` drops deleted issues. Issues are **not** tasks. `ao linear task KAP-n --agent X [--run]` is the explicit hand-off, which sets `tasks.linear_issue_id`.
 - **Writes (KAP-95):** `linear_changes` rows (`create_issue` | `update_issue` | `comment`). `propose_*` validates names against `linear_meta` and the allowlist and sends **nothing**. `apply()` re-checks the allowlist against the issue's *live* project, then runs the GraphQL mutation (the mutations live in `changes.py`; the client has none). The outcome is applied or failed, and every step is logged as an event. CLI: `ao linear new|edit|comment` (propose), `pending|change N|apply N [--yes]|reject N`. `ao linear task … --run --comment-back` proposes a result comment.
+- **Board manager (KAP-94, `ao.linear.board`):**
+  - `linear-manager` has memory write-back plus `[context] providers = ["linear_board"]`, so every run (CLI, Jarvis delegation, MCP) gets a compact board section of about 2k tokens: states, labels with descriptions, active projects and milestones, writable projects.
+  - `ao linear draft` produces structured output; unknown labels and milestones are dropped with a warning, and the result is a **pending** create.
+  - `ao linear review [--propose]` works from a one-line-per-issue digest that includes whether a description and an Acceptance section exist, so it never sends bodies. Suggestions become pending updates only with `--propose`.
+  - `ao linear seed-memory` deterministically writes the house rules and label descriptions into memory.
+- Context providers (`ao.context_providers`) are the generic mechanism: opt-in per agent and not duplicated when a caller passes the same section.
 - Tests use `tests/linear_fake.py` (`FakeLinear`, an httpx MockTransport; `fake.mutations()` asserts nothing was sent).
 
 ## Tasks and runner (implemented)

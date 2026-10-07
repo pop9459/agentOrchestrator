@@ -29,8 +29,10 @@ class Script:
         self.seen.append(request)
         if request.agent.name == "jarvis":
             return self.jarvis_answers.pop(0)
-        return Result(outcome="ok", text=f"{request.agent.name} did: {request.prompt}",
-                      model="fake", usage=Usage(input_tokens=20, output_tokens=3))  # fmt: skip
+        text = f"{request.agent.name} did: {request.prompt}"
+        structured = {"reply": text, "memory": []} if request.json_schema else None
+        return Result(outcome="ok", text=text, structured=structured, model="fake",
+                      usage=Usage(input_tokens=20, output_tokens=3))  # fmt: skip
 
     def jarvis_requests(self):
         return [r for r in self.seen if r.agent.name == "jarvis"]
