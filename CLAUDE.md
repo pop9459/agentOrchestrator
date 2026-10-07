@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Roadmap and tickets: Linear project **P-KAP-10** "Create paperclip clone project" (team KAPSLOK, issues KAP-73…98 plus KAP-45/46/47), https://linear.app/pop9459/project/create-paperclip-clone-project-8e1a10e04d56. Milestones run M0 Foundations → M1 Agent runtime → M2 Company core → M3 Confidential & local → M4 Linear → M5 Connectors → M6 TUI. Branch names follow Linear's `pop9459/kap-NN-…` convention.
 
-**Status:** M0 Foundations in progress.
+**Status:** M0 Foundations done (config, secrets, SQLite store). Next: M1 agent runtime, starting with KAP-76 and KAP-77.
 
 ## Commands
 Python ≥3.12 managed by uv; package lives in `src/ao/`, tests in `tests/`.
@@ -33,6 +33,12 @@ uv run ruff format                        # format
 - `ao.config.load_config()` deep-merges `~/.config/ao/ao.toml` < `<project>/ao.toml` < `<project>/ao.local.toml` (gitignored) into strict Pydantic models (`extra="forbid"`; errors give dotted key paths and the source file). See `ao.example.toml`. The project root is the nearest ancestor containing `ao.toml`/`ao.local.toml`/`.git`.
 - Config holds only secret *names* (`api_key_secret = "llama"`). `ao.secrets.get_secret(name)` resolves `AO_SECRET_<NAME>` env, then project `.env`, then the OS keyring (service `ao`, optional `keyring` extra). `.env` values are deliberately **not** exported to `os.environ`. When spawning agent subprocesses, also strip `AO_SECRET_*` from the child env.
 - Data dir: `AO_DATA_DIR` > `paths.data_dir` > `$XDG_DATA_HOME/ao` (`db/ao.sqlite3`, `cache/`, `logs/`). Tests isolate all of this via the autouse fixture in `tests/conftest.py`.
+
+## State store (implemented)
+- `ao.db.store`: `connect()` opens SQLite in autocommit mode with foreign keys and WAL on. `migrate()` applies `src/ao/db/migrations/NNNN_name.sql` in order, each inside its own transaction, and records them in `schema_migrations`. A schema change means a **new** numbered file; never edit an applied migration.
+- `ao.db.repo`: thin functions returning dataclasses (`add_task`, `record_run`, `log_event`, `usage_summary`, …). Use `repo.transaction(conn)` for multi-statement writes.
+- Usage is the `usage_daily` **view** over `runs`, not separate counters, so recording a run is the only bookkeeping needed.
+- `ao db migrate` / `ao db status`.
 
 ## Planned architecture
 - **Agents are directories** `agents/<name>/`: `agent.toml` (backend, model, permissions, clearance, budget), `INSTRUCTIONS.md`, `memory/` (INDEX.md plus fact files), `workspace/` (cwd for runs), optional `mcp.json` (loaded with strict MCP config, so the agent inherits no global servers).
