@@ -13,8 +13,10 @@ import signal
 import subprocess
 import time
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from ao import mcp, secrets
 from ao.backends import register
 from ao.backends.base import Health, Result, RunRequest, Usage
 from ao.config import BackendConfig
@@ -37,8 +39,13 @@ API_KEY_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 STDERR_TAIL = 2000
 
 
-def build_argv(config: BackendConfig, request: RunRequest) -> list[str]:
-    """The full command line for a run. The user prompt is sent on stdin, not here."""
+def build_argv(
+    config: BackendConfig, request: RunRequest, mcp_config: Path | None = None
+) -> list[str]:
+    """The full command line for a run. The user prompt is sent on stdin, not here.
+
+    `mcp_config` overrides the agent's mcp.json path (used for the rendered temp copy).
+    """
     agent = request.agent.config
     argv = [*shlex.split(config.command or "claude"), *FIXED_FLAGS]
     if request.model:
@@ -59,8 +66,9 @@ def build_argv(config: BackendConfig, request: RunRequest) -> list[str]:
         argv += ["--max-budget-usd", f"{request.max_cost_usd:g}"]
     if request.json_schema is not None:
         argv += ["--json-schema", json.dumps(request.json_schema)]
-    if request.agent.mcp_config is not None:
-        argv += ["--mcp-config", str(request.agent.mcp_config)]
+    mcp_config = mcp_config or request.agent.mcp_config
+    if mcp_config is not None:
+        argv += ["--mcp-config", str(mcp_config)]
     return argv
 
 
@@ -129,7 +137,13 @@ class ClaudeCodeBackend:
         return request.agent.config.limits.timeout_s or self.config.timeout_s
 
     def run(self, request: RunRequest) -> Result:
-        argv = build_argv(self.config, request)
+        try:
+            with mcp.materialize(request.agent.mcp_config) as mcp_config:
+                return self._run(build_argv(self.config, request, mcp_config), request)
+        except secrets.SecretNotFound as exc:
+            return Result(outcome="error", error=str(exc))
+
+    def _run(self, argv: list[str], request: RunRequest) -> Result:
         cwd = request.agent.workspace
         cwd.mkdir(parents=True, exist_ok=True)
         timeout = self._timeout(request)
