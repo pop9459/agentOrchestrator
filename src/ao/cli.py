@@ -1,16 +1,21 @@
 """`ao` command-line entrypoint."""
 
+import json
 from typing import Annotated
 
 import typer
 
-from ao import __version__
+from ao import __version__, secrets
+from ao.config import ConfigError, LoadedConfig, config_files, load_config, redact
+from ao.paths import find_project_root
 
 app = typer.Typer(
     name="ao",
     help="agentOrchestrator: a small, token-efficient company of hireable agents.",
     no_args_is_help=True,
 )
+config_app = typer.Typer(help="Inspect configuration.", no_args_is_help=True)
+app.add_typer(config_app, name="config")
 
 
 def _version_callback(value: bool) -> None:
@@ -29,3 +34,61 @@ def main(
     ] = False,
 ) -> None:
     """agentOrchestrator CLI."""
+    secrets.load_dotenv_file(find_project_root())
+
+
+def _load() -> LoadedConfig:
+    try:
+        return load_config()
+    except ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+
+@config_app.command("show")
+def config_show(
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Print the merged config (secrets redacted) and which files it came from."""
+    loaded = _load()
+    config = redact(loaded.config.model_dump(mode="json"))
+    secret_refs = {
+        name: backend.api_key_secret
+        for name, backend in loaded.config.backends.items()
+        if backend.api_key_secret
+    }
+    secret_status = {ref: secrets.secret_source(ref) or "missing" for ref in secret_refs.values()}
+    if as_json:
+        payload = {
+            "project_root": str(loaded.project_root),
+            "sources": [str(p) for p in loaded.sources],
+            "config": config,
+            "secrets": secret_status,
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    typer.echo(f"project root: {loaded.project_root}")
+    typer.echo("sources:" if loaded.sources else "sources: (none, using defaults)")
+    for path in loaded.sources:
+        typer.echo(f"  {path}")
+    typer.echo(json.dumps(config, indent=2))
+    if secret_status:
+        typer.echo("secrets:")
+        for ref, source in secret_status.items():
+            typer.echo(f"  {ref}: {source}")
+
+
+@config_app.command("paths")
+def config_paths() -> None:
+    """Show where ao looks for config and stores data."""
+    loaded = _load()
+    data = loaded.data
+    typer.echo(f"project root: {loaded.project_root}")
+    typer.echo("config files (low → high precedence):")
+    for path in config_files(loaded.project_root):
+        typer.echo(f"  [{'x' if path.is_file() else ' '}] {path}")
+    typer.echo(f"agents dir:   {loaded.agents_dir}")
+    typer.echo(f"data dir:     {data.root}")
+    typer.echo(f"  database:   {data.db_path}")
+    typer.echo(f"  cache:      {data.cache}")
+    typer.echo(f"  logs:       {data.logs}")

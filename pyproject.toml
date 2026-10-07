@@ -4,11 +4,18 @@ version = "0.1.0"
 description = "agentOrchestrator: a small, token-efficient company of hireable agents"
 requires-python = ">=3.12"
 dependencies = [
+    "pydantic>=2",
+    "python-dotenv>=1",
     "typer>=0.12",
 ]
 
 [project.scripts]
 ao = "ao.cli:app"
+
+[project.optional-dependencies]
+keyring = [
+    "keyring>=25",
+]
 
 [build-system]
 requires = ["hatchling"]

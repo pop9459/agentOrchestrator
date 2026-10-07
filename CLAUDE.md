@@ -29,6 +29,11 @@ uv run ruff format                        # format
 6. **Secrets live only in connector/config code** (keyring or env). They never go into agent dirs, prompts, logs or the DB.
 7. **Outward actions need human approval.** The orchestrator must not write to Linear until the KAP-95 approval gate exists, and then only to allowlisted projects. Mail is read-only permanently.
 
+## Config, secrets and paths (implemented)
+- `ao.config.load_config()` deep-merges `~/.config/ao/ao.toml` < `<project>/ao.toml` < `<project>/ao.local.toml` (gitignored) into strict Pydantic models (`extra="forbid"`; errors give dotted key paths and the source file). See `ao.example.toml`. The project root is the nearest ancestor containing `ao.toml`/`ao.local.toml`/`.git`.
+- Config holds only secret *names* (`api_key_secret = "llama"`). `ao.secrets.get_secret(name)` resolves `AO_SECRET_<NAME>` env, then project `.env`, then the OS keyring (service `ao`, optional `keyring` extra). `.env` values are deliberately **not** exported to `os.environ`. When spawning agent subprocesses, also strip `AO_SECRET_*` from the child env.
+- Data dir: `AO_DATA_DIR` > `paths.data_dir` > `$XDG_DATA_HOME/ao` (`db/ao.sqlite3`, `cache/`, `logs/`). Tests isolate all of this via the autouse fixture in `tests/conftest.py`.
+
 ## Planned architecture
 - **Agents are directories** `agents/<name>/`: `agent.toml` (backend, model, permissions, clearance, budget), `INSTRUCTIONS.md`, `memory/` (INDEX.md plus fact files), `workspace/` (cwd for runs), optional `mcp.json` (loaded with strict MCP config, so the agent inherits no global servers).
 - **Backends** implement one interface, `run(prompt, context, opts) -> Result(text, usage, …)` plus `health()`. The implementations are `claude_code`, `openai_compat` and `cli_template`. Verify Claude CLI flags against `claude --help`; don't trust memory.
