@@ -5,13 +5,13 @@ This is the seed of the task runner (KAP-83); the full context builder is KAP-84
 
 import hashlib
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from ao import mcp
+from ao import budget, mcp
 from ao.agents import Agent, agent_problem, load_agent
 from ao.backends import get_backend
 from ao.backends.base import Backend, Result, RunRequest
-from ao.config import LoadedConfig
+from ao.config import BudgetsConfig, LoadedConfig
 from ao.db import repo
 from ao.secrets import SecretNotFound
 
@@ -25,6 +25,8 @@ class PreparedRun:
     agent: Agent
     backend: Backend
     request: RunRequest
+    global_budgets: BudgetsConfig = field(default_factory=BudgetsConfig)
+    local_backends: frozenset[str] = frozenset()
 
     @property
     def prompt_hash(self) -> str:
@@ -74,15 +76,56 @@ def prepare(loaded: LoadedConfig, agent_name: str, prompt: str) -> PreparedRun:
         model=agent.config.model or backend_config.model,
         max_cost_usd=agent.config.budget.per_run_cost_usd,
     )
-    return PreparedRun(agent=agent, backend=backend, request=request)
+    return PreparedRun(
+        agent=agent,
+        backend=backend,
+        request=request,
+        global_budgets=loaded.config.budgets,
+        local_backends=frozenset(n for n, b in loaded.config.backends.items() if b.is_local),
+    )
+
+
+def check_budget(conn: sqlite3.Connection, prepared: PreparedRun) -> budget.Decision:
+    return budget.check(
+        conn,
+        prepared.agent.name,
+        prepared.agent.config.budget,
+        backend_is_local=prepared.backend.is_local,
+        global_budgets=prepared.global_budgets,
+        local_backends=prepared.local_backends,
+    )
 
 
 def execute(
-    conn: sqlite3.Connection, prepared: PreparedRun, task_id: int | None = None
+    conn: sqlite3.Connection,
+    prepared: PreparedRun,
+    task_id: int | None = None,
+    *,
+    force: bool = False,
 ) -> RunRecord:
-    """Run the backend and persist a `runs` row plus a `run.finished` event."""
+    """Check budgets, run the backend, persist a `runs` row plus an event.
+
+    Over budget: the run is recorded as `refused` and the backend is never called,
+    unless `force` is set (which is logged as a `budget.override` event).
+    """
+    decision = check_budget(conn, prepared)
+    if not decision.allowed:
+        if not force:
+            return _record(conn, prepared, Result(outcome="refused", error=decision.reason),
+                           task_id, event="run.refused")  # fmt: skip
+        repo.log_event(conn, "budget.override", agent=prepared.agent.name, task_id=task_id,
+                       data={"reason": decision.reason})  # fmt: skip
     prepared.agent.workspace.mkdir(parents=True, exist_ok=True)
-    result = prepared.backend.run(prepared.request)
+    return _record(conn, prepared, prepared.backend.run(prepared.request), task_id)
+
+
+def _record(
+    conn: sqlite3.Connection,
+    prepared: PreparedRun,
+    result: Result,
+    task_id: int | None,
+    event: str = "run.finished",
+) -> RunRecord:
     usage = result.usage
     run_id = repo.record_run(
         conn,
@@ -104,7 +147,7 @@ def execute(
     )
     repo.log_event(
         conn,
-        "run.finished",
+        event,
         agent=prepared.agent.name,
         task_id=task_id,
         run_id=run_id,
