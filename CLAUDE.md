@@ -7,10 +7,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Roadmap and tickets: Linear project **P-KAP-10** "Create paperclip clone project" (team KAPSLOK, issues KAP-73…98 plus KAP-45/46/47), https://linear.app/pop9459/project/create-paperclip-clone-project-8e1a10e04d56. Milestones run M0 Foundations → M1 Agent runtime → M2 Company core → M3 Confidential & local → M4 Linear → M5 Connectors → M6 TUI. Branch names follow Linear's `pop9459/kap-NN-…` convention.
 
-**Status:** pre-code. Nothing is implemented yet. Start with KAP-73 (scaffold).
+**Status:** M0 Foundations in progress.
 
 ## Commands
-Not yet defined. KAP-73 sets up uv + ruff + pytest + a Typer `ao` entrypoint. Fill this section in with the real install/lint/test/single-test commands when that lands.
+Python ≥3.12 managed by uv; package lives in `src/ao/`, tests in `tests/`.
+```bash
+uv sync                                   # install deps + dev group into .venv
+uv run ao --help                          # run the CLI
+uv run pytest                             # all tests
+uv run pytest tests/test_cli.py::test_version   # single test
+uv run ruff check                         # lint (add --fix to autofix)
+uv run ruff format                        # format
+```
 
 ## Design rules (these drive most implementation decisions)
 1. **No heartbeats.** The LLM is called only when a task or event exists. Queues, scheduling, routing, retries and budgets are plain Python.
