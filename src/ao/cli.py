@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import sys
 from contextlib import closing
 from dataclasses import asdict
 from typing import Annotated
@@ -20,7 +19,16 @@ from ao.agents import (
     template_names,
 )
 from ao.backends.base import BackendError
-from ao.config import ConfigError, LoadedConfig, config_files, load_config, redact
+from ao.cli_common import (
+    EXIT_REFUSED,
+    EXIT_RUN_FAILED,
+    EXIT_USAGE,
+    load_or_exit,
+    open_db,
+    text_or_stdin,
+)
+from ao.cli_tasks import task_app
+from ao.config import LoadedConfig, config_files, redact
 from ao.db import repo, store
 from ao.paths import find_project_root
 
@@ -35,6 +43,7 @@ db_app = typer.Typer(help="Manage the state database.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 agents_app = typer.Typer(help="Create and inspect agents.", no_args_is_help=True)
 app.add_typer(agents_app, name="agents")
+app.add_typer(task_app, name="task")
 
 
 def _version_callback(value: bool) -> None:
@@ -56,26 +65,6 @@ def main(
     secrets.load_dotenv_file(find_project_root())
 
 
-def _load() -> LoadedConfig:
-    try:
-        return load_config()
-    except ConfigError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2) from exc
-
-
-def _open_db(loaded: LoadedConfig) -> sqlite3.Connection:
-    """Open the state DB, creating/upgrading it as needed (migrations are cheap no-ops)."""
-    conn = store.connect(loaded.data.ensure().db_path)
-    store.migrate(conn)
-    return conn
-
-
-EXIT_RUN_FAILED = 1
-EXIT_USAGE = 2
-EXIT_REFUSED = 3
-
-
 @app.command("run")
 def run_agent(
     agent: Annotated[str, typer.Argument(help="Agent name.")],
@@ -94,12 +83,8 @@ def run_agent(
 
     Exit codes: 0 ok, 1 run failed or timed out, 2 bad input/config, 3 refused (budget).
     """
-    if prompt is None:
-        if sys.stdin.isatty():
-            typer.echo("no prompt given (pass it as an argument or on stdin)", err=True)
-            raise typer.Exit(EXIT_USAGE)
-        prompt = sys.stdin.read()
-    loaded = _load()
+    prompt = text_or_stdin(prompt)
+    loaded = load_or_exit()
     try:
         prepared = runs.prepare(loaded, agent, prompt)
     except (AgentError, BackendError, runs.RunError) as exc:
@@ -119,7 +104,7 @@ def run_agent(
         typer.echo(prepared.request.prompt)
         return
 
-    with closing(_open_db(loaded)) as conn:
+    with closing(open_db(loaded)) as conn:
         record = runs.execute(conn, prepared, force=force)
     result, usage = record.result, record.result.usage
     if as_json:
@@ -167,8 +152,8 @@ def usage(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(EXIT_USAGE) from exc
-    loaded = _load()
-    with closing(_open_db(loaded)) as conn:
+    loaded = load_or_exit()
+    with closing(open_db(loaded)) as conn:
         rows = repo.usage_summary(conn, since=start.isoformat(), agent=agent)
         budgets = _budget_status(loaded, conn, agent)
     if as_json:
@@ -237,7 +222,7 @@ def config_show(
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
 ) -> None:
     """Print the merged config (secrets redacted) and which files it came from."""
-    loaded = _load()
+    loaded = load_or_exit()
     config = redact(loaded.config.model_dump(mode="json"))
     secret_refs = {
         name: backend.api_key_secret
@@ -268,7 +253,7 @@ def config_show(
 @config_app.command("paths")
 def config_paths() -> None:
     """Show where ao looks for config and stores data."""
-    loaded = _load()
+    loaded = load_or_exit()
     data = loaded.data
     typer.echo(f"project root: {loaded.project_root}")
     typer.echo("config files (low → high precedence):")
@@ -284,7 +269,7 @@ def config_paths() -> None:
 @db_app.command("migrate")
 def db_migrate() -> None:
     """Create or upgrade the state database (safe to run repeatedly)."""
-    db_path = _load().data.ensure().db_path
+    db_path = load_or_exit().data.ensure().db_path
     with closing(store.connect(db_path)) as conn:
         applied = store.migrate(conn)
     if not applied:
@@ -296,7 +281,7 @@ def db_migrate() -> None:
 @db_app.command("status")
 def db_status() -> None:
     """Show database location, applied migrations and row counts."""
-    db_path = _load().data.db_path
+    db_path = load_or_exit().data.db_path
     typer.echo(f"database: {db_path}")
     if not db_path.exists():
         typer.echo("not created yet; run `ao db migrate`")
@@ -316,7 +301,7 @@ def db_status() -> None:
 @agents_app.command("list")
 def agents_list() -> None:
     """List agents with their backend, model and status."""
-    loaded = _load()
+    loaded = load_or_exit()
     names = list_agent_names(loaded)
     if not names:
         typer.echo(f"no agents in {loaded.agents_dir}; create some with `ao agents init`")
@@ -344,7 +329,7 @@ def agents_list() -> None:
 @agents_app.command("show")
 def agents_show(name: str) -> None:
     """Show an agent's resolved config, files and workspace."""
-    loaded = _load()
+    loaded = load_or_exit()
     try:
         agent = load_agent(loaded, name)
     except AgentError as exc:
@@ -367,7 +352,7 @@ def agents_new(
     ] = None,
 ) -> None:
     """Create a new agent from a template."""
-    loaded = _load()
+    loaded = load_or_exit()
     try:
         directory = create_agent(loaded, name, template)
     except AgentError as exc:
@@ -379,7 +364,7 @@ def agents_new(
 @agents_app.command("init")
 def agents_init() -> None:
     """Create the starter agents (every template except `blank`) that don't exist yet."""
-    loaded = _load()
+    loaded = load_or_exit()
     existing = set(list_agent_names(loaded))
     for name in template_names():
         if name == "blank" or name in existing:

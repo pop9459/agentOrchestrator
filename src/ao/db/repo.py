@@ -35,6 +35,17 @@ class Task:
     linear_issue_id: str | None
     created_at: str
     updated_at: str
+    result: str | None = None
+    error: str | None = None
+    attempts: int = 0
+    depth: int = 0
+    attachments: tuple[str, ...] = ()
+
+
+def _task(row: sqlite3.Row) -> Task:
+    data = dict(row)
+    data["attachments"] = tuple(json.loads(data.get("attachments") or "[]"))
+    return Task(**data)
 
 
 @dataclass(frozen=True)
@@ -64,12 +75,15 @@ def add_task(
     parent_id: int | None = None,
     classification: Classification = "public",
     linear_issue_id: str | None = None,
+    depth: int = 0,
+    attachments: list[str] | tuple[str, ...] = (),
 ) -> Task:
     cur = conn.execute(
-        "INSERT INTO tasks (title, body, agent, parent_id, classification, linear_issue_id)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (title, body, agent, parent_id, classification, linear_issue_id),
-    )
+        "INSERT INTO tasks (title, body, agent, parent_id, classification, linear_issue_id,"
+        " depth, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, body, agent, parent_id, classification, linear_issue_id, depth,
+         json.dumps(list(attachments))),
+    )  # fmt: skip
     return get_task(conn, cur.lastrowid)
 
 
@@ -77,7 +91,7 @@ def get_task(conn: sqlite3.Connection, task_id: int) -> Task:
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise KeyError(f"task {task_id} not found")
-    return Task(**dict(row))
+    return _task(row)
 
 
 def list_tasks(conn: sqlite3.Connection, status: TaskStatus | None = None) -> list[Task]:
@@ -85,7 +99,63 @@ def list_tasks(conn: sqlite3.Connection, status: TaskStatus | None = None) -> li
         rows = conn.execute("SELECT * FROM tasks ORDER BY id")
     else:
         rows = conn.execute("SELECT * FROM tasks WHERE status = ? ORDER BY id", (status,))
-    return [Task(**dict(row)) for row in rows]
+    return [_task(row) for row in rows]
+
+
+def next_queued_task(conn: sqlite3.Connection) -> Task | None:
+    row = conn.execute("SELECT * FROM tasks WHERE status = 'queued' ORDER BY id LIMIT 1").fetchone()
+    return _task(row) if row else None
+
+
+def child_tasks(conn: sqlite3.Connection, parent_id: int) -> list[Task]:
+    rows = conn.execute("SELECT * FROM tasks WHERE parent_id = ? ORDER BY id", (parent_id,))
+    return [_task(row) for row in rows]
+
+
+def start_task(conn: sqlite3.Connection, task_id: int) -> Task:
+    """Mark running and count the attempt."""
+    cur = conn.execute(
+        "UPDATE tasks SET status = 'running', attempts = attempts + 1, error = NULL,"
+        " updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        (task_id,),
+    )
+    if cur.rowcount == 0:
+        raise KeyError(f"task {task_id} not found")
+    return get_task(conn, task_id)
+
+
+def finish_task(
+    conn: sqlite3.Connection,
+    task_id: int,
+    status: TaskStatus,
+    *,
+    result: str | None = None,
+    error: str | None = None,
+) -> Task:
+    cur = conn.execute(
+        "UPDATE tasks SET status = ?, result = coalesce(?, result), error = ?,"
+        " updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        (status, result, error, task_id),
+    )
+    if cur.rowcount == 0:
+        raise KeyError(f"task {task_id} not found")
+    return get_task(conn, task_id)
+
+
+def reset_task(conn: sqlite3.Connection, task_id: int) -> Task:
+    """Re-queue a task and clear its attempt counter (explicit user retry)."""
+    cur = conn.execute(
+        "UPDATE tasks SET status = 'queued', attempts = 0, error = NULL,"
+        " updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        (task_id,),
+    )
+    if cur.rowcount == 0:
+        raise KeyError(f"task {task_id} not found")
+    return get_task(conn, task_id)
+
+
+def runs_for_task(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM runs WHERE task_id = ? ORDER BY id", (task_id,)))
 
 
 def update_task_status(conn: sqlite3.Connection, task_id: int, status: TaskStatus) -> Task:

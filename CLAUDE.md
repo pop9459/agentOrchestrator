@@ -55,6 +55,11 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - `ao.backends.claude_code`: `build_argv()` is a pure function, and its fixed flags (`FIXED_FLAGS`) come from the KAP-102 measurements. The prompt is sent on **stdin**. The child env drops `AO_SECRET_*` and, with `use_subscription` (default), `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`. Timeouts kill the whole process group. `parse_result()` is tested against a real, scrubbed output in `tests/fixtures/`.
 - `ao.run`: `prepare()` (agent → backend → `RunRequest`; system prompt = INSTRUCTIONS then memory index) and `execute()` (runs the backend, writes a `runs` row and a `run.finished` event). CLI: `ao run`. Tests swap the backend for `tests/fakes.py:FakeBackend` by monkeypatching `ao.run.get_backend`.
 
+## Tasks and runner (implemented)
+- `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
+- In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).
+- The CLI is split into `cli.py` (app, run/usage/config/db/agents), `cli_tasks.py` and `cli_common.py` (shared `load_or_exit`, `open_db`, exit codes).
+
 ## Budgets (implemented)
 - `ao.budget.check()` runs inside `run.execute()` **before** the backend. Agent `daily_tokens` (billable = input + cache writes + output), agent `daily_cost_usd` (CLI notional cost) and global `budgets.global_daily_tokens` (non-local backends only) are counted per UTC day. Over a cap → the run is recorded as `refused` and the backend is never called. `--force` runs anyway and logs a `budget.override` event. `per_run_cost_usd` maps to `--max-budget-usd`.
 - `usage_daily` excludes refused runs. `ao usage [--agent] [--since today|Nd|YYYY-MM-DD] [--json]`. `ao run` exit codes: 0 ok, 1 failed/timeout, 2 bad input, 3 refused.
