@@ -40,3 +40,4 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["live: calls real external services; opt in with AO_LIVE=1"]
