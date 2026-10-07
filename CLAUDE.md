@@ -69,6 +69,10 @@ uv run ao run <agent> "…" --dry-run       # show exact claude argv + system pr
 - Memory (`ao.memory`) is **only** `agents/<name>/memory/INDEX.md`, with lines of the form `- [id] text`. With `[memory] writeback = true`, the run adds a short protocol section and a required `memory` ops field. `run.execute` validates and applies the ops after an ok run and logs `memory.*` events. Agents never write the file directly.
 - A write-back run costs about 1.3k input tokens (vs about 430 without). `ao memory show|add|rm|compact`. Compaction (`ao.compaction`) is one haiku call with a diff, applied only after confirmation.
 
+## J.A.R.V.I.S (implemented)
+- `ao.jarvis.handle()`: one request = one parent task for `jarvis`. Jarvis returns `{reply, delegations[]}` via `--json-schema` and sees only the roster (`roster()`: runnable agents except `jarvis` and `hiring`). Delegations become child tasks that **auto-run** through the runner, so all guards apply. The results go back to Jarvis for the final reply. Limits: `MAX_DELEGATIONS = 4` per round and `MAX_ROUNDS = 2`.
+- `ao ask` is stateless; its follow-up call repeats the original request. `ao chat` keeps one Claude session (`persist_session`/`--resume`, id stored in `<data>/chat/jarvis.session`, `--resume` continues it), so later turns are mostly cache reads. `RunRequest.persist_session`/`resume_session_id` drive this; every other run uses `--no-session-persistence`.
+
 ## Tasks and runner (implemented)
 - `ao.runner.run_task()` is the only way tasks execute: status `queued|waiting` → `running` → `done` (result stored) / `waiting` (budget refused) / `failed`. It is sequential and on demand (`ao task run N|--next|--all`). There is no daemon and no polling.
 - In-code guards: `MAX_ATTEMPTS` loop guard (`ao task retry` resets it), and confidential tasks are hard-refused on non-local backends before anything is sent (a minimal version of KAP-90).

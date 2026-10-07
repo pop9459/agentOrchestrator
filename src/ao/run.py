@@ -80,6 +80,8 @@ def prepare(
     instructions: str | None = None,
     model: str | None = None,
     writeback: bool | None = None,
+    persist_session: bool = False,
+    resume_session_id: str | None = None,
 ) -> PreparedRun:
     """Resolve agent and backend and assemble the context. Sends nothing.
 
@@ -118,6 +120,8 @@ def prepare(
         model=model or agent.config.model or backend_config.model,
         max_cost_usd=agent.config.budget.per_run_cost_usd,
         json_schema=output_schema,
+        persist_session=persist_session,
+        resume_session_id=resume_session_id,
     )
     return PreparedRun(
         agent=agent,
