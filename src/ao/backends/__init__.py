@@ -26,3 +26,7 @@ def get_backend(name: str, config: BackendConfig) -> Backend:
             raise BackendError(f"backend type {config.type!r} is not implemented yet ({ticket})")
         raise BackendError(f"unknown backend type {config.type!r}")
     return factory(name, config)
+
+
+# Built-in backends register themselves on import (kept last: they import `register`).
+from ao.backends import claude_code  # noqa: E402, F401

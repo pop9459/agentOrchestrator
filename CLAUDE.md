@@ -18,6 +18,8 @@ uv run pytest                             # all tests
 uv run pytest tests/test_cli.py::test_version   # single test
 uv run ruff check                         # lint (add --fix to autofix)
 uv run ruff format                        # format
+AO_LIVE=1 uv run pytest -m live           # opt-in tests that call real `claude -p` (tiny quota use)
+uv run ao run <agent> "…" --dry-run       # show exact claude argv + system prompt, call nothing
 ```
 
 ## Design rules (these drive most implementation decisions)
@@ -47,8 +49,13 @@ uv run ruff format                        # format
 - Prefer `prompt.mode = "replace"` with `tools.builtin = []` (about 430 input tokens per call). `append` plus tools costs about 17.6k. Only give agents tools they need.
 - A built-in `claude` backend (`claude_code`) exists without any config file.
 
+## Backends and runs (implemented)
+- `ao.backends.base`: `RunRequest` → `Backend.run()` → `Result` (`Usage` counts input, output, cache read/write and cost; `billable_tokens` excludes cache reads). Backends register with `@register("<type>")` in `ao.backends`; built-ins are imported at the bottom of `ao/backends/__init__.py`.
+- `ao.backends.claude_code`: `build_argv()` is a pure function, and its fixed flags (`FIXED_FLAGS`) come from the KAP-102 measurements. The prompt is sent on **stdin**. The child env drops `AO_SECRET_*` and, with `use_subscription` (default), `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`. Timeouts kill the whole process group. `parse_result()` is tested against a real, scrubbed output in `tests/fixtures/`.
+- `ao.run`: `prepare()` (agent → backend → `RunRequest`; system prompt = INSTRUCTIONS then memory index) and `execute()` (runs the backend, writes a `runs` row and a `run.finished` event). CLI: `ao run`. Tests swap the backend for `tests/fakes.py:FakeBackend` by monkeypatching `ao.run.get_backend`.
+
 ## Planned architecture
-- **Backends** implement one interface, `run(prompt, context, opts) -> Result(text, usage, …)` plus `health()`. The implementations are `claude_code`, `openai_compat` and `cli_template`. Verify Claude CLI flags against `claude --help`; don't trust memory.
+- **More backends:** `openai_compat` (llama.cpp, KAP-80) and `cli_template` (KAP-81) are deferred. Verify Claude CLI flags against `claude --help`; don't trust memory.
 - **Runner**: pick task → health check → routing/confidentiality guard → budget check → context builder → backend → persist run → apply memory proposals.
 - **State**: SQLite (tasks, runs, usage, events/audit). Linear is the source of truth for human-visible work.
 - **Jarvis** sees only the agent roster and returns a delegation plan. The runner executes it. `ao` is also exposed as an MCP server so Claude-based agents delegate through tool calls.
