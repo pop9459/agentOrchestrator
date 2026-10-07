@@ -30,6 +30,7 @@ from ao.cli_common import (
 )
 from ao.cli_hiring import hire
 from ao.cli_jarvis import ask, chat
+from ao.cli_linear import linear_app
 from ao.cli_memory import memory_app
 from ao.cli_tasks import task_app
 from ao.config import LoadedConfig, config_files, redact
@@ -53,6 +54,7 @@ app.add_typer(memory_app, name="memory")
 app.command("ask")(ask)
 app.command("chat")(chat)
 app.command("hire")(hire)
+app.add_typer(linear_app, name="linear")
 mcp_app = typer.Typer(help="Run ao as an MCP server.", no_args_is_help=True)
 app.add_typer(mcp_app, name="mcp")
 

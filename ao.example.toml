@@ -22,3 +22,8 @@ model = "local-model"
 api_key_secret = "llama"                    # resolved from AO_SECRET_LLAMA / .env / keyring
 is_local = true
 timeout_s = 600
+
+[linear]
+team = "KAP"                 # team key to mirror (ao linear sync)
+api_key_secret = "linear"    # personal API key in AO_SECRET_LINEAR (.env) or keyring
+write_projects = []          # projects ao may write to, only via applied change sets
